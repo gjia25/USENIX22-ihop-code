@@ -67,7 +67,7 @@ def get_update_coefficients_functions(token_trace, token_info, aux, obs, exp_par
 
 def ihop_attack(obs, aux, exp_params):
     token_trace, token_info = process_traces(obs, aux, exp_params.def_params)
-
+    print(f'm = {len(token_info)}. Processing {len(token_trace)} queries...', flush=True)
     compute_coef_matrix, rep_to_kw = get_update_coefficients_functions(token_trace, token_info, aux, obs, exp_params)
     att_params = exp_params.att_params
 
@@ -87,7 +87,9 @@ def ihop_attack(obs, aux, exp_params):
 
     # First matching:
     c_matrix_original = compute_coef_matrix(unknown_reps, unknown_toks, ground_truth_reps, ground_truth_tokens)
+    print('Computed first matrix...', end='', flush=True)
     row_ind, col_ind = hungarian(c_matrix_original)
+    print('Solved first matrix...', end='', flush=True)
     replica_predictions_for_each_token = {token: rep for token, rep in zip(ground_truth_tokens, ground_truth_reps)}
     for j, i in zip(col_ind, row_ind):
         replica_predictions_for_each_token[unknown_toks[j]] = unknown_reps[i]
@@ -110,8 +112,9 @@ def ihop_attack(obs, aux, exp_params):
         free_replicas = [rep for rep in unknown_reps if rep not in fixed_reps]
 
         c_matrix = compute_coef_matrix(free_replicas, free_tokens, fixed_reps, fixed_tokens)
-
+        print('Computed...', end='', flush=True)
         row_ind, col_ind = hungarian(c_matrix)
+        print('Solved...', end='', flush=True)
         for j, i in zip(col_ind, row_ind):
             replica_predictions_for_each_token[free_tokens[j]] = free_replicas[i]
 

@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import pandas as pd
 import pickle
 import time
 import attacks
@@ -103,6 +104,104 @@ def build_frequencies_from_file(dataset_name, chosen_kw_indices, keywords, aux_d
         raise ValueError("No frequencies for dataset {:s}".format(dataset_name))
     return freq_adv, freq_cli, freq_real
 
+def generate_page_observations(gen_params):
+    assert gen_params['dataset'] == 'pages'
+    data_path = "/Users/user/Desktop/Yale/Y2/CPSC581/final"
+    num_features = 26
+    input_cols = [f'page_{i+1}' for i in range(num_features)]
+    target_cols = [f'idx_{i+1}' for i in range(num_features)]
+    
+    def _filter_by_unique(data, unique_indices):
+        return data[data[target_cols].isin(unique_indices).all(axis=1)]
+    def _get_data_adv(nkw):
+        all_filename = f"{data_path}/all.csv"
+        train_filename = f"{data_path}/train.csv"
+        path_data_adv = f"{data_path}/data_adv.pkl"
+        
+        inputs = pd.read_csv(all_filename)
+        train_data = pd.read_csv(train_filename)
+        # unique_pages = pd.unique(train_data[input_cols].values.ravel('K'))
+        
+        print("Loaded datasets.")
+        if os.path.exists(path_data_adv):
+            print(f"Loading auxiliary dataset...")
+            with open(path_data_adv, 'rb') as f:
+                data_adv = pickle.load(f)
+        else:
+            print(f"Building auxiliary dataset...")              
+            # data_adv = [[train_data.iloc[row][col]] for row in range(len(train_data)) for col in target_cols]
+            page_to_indices = {}
+            for i, row in train_data.iterrows():
+                for j in range(1,num_features+1):
+                    page = row[f'page_{j}']
+                    if page not in page_to_indices:
+                        page_to_indices[page] = set()
+                    page_to_indices[page].add(row[f'idx_{j}'])
+                if i % 500000 == 0:
+                    print(i, end=' ', flush=True)
+            data_adv = list(map(lambda x: list(x), page_to_indices.values()))
+            print(data_adv[:5]) # kws (entries) in each doc (page)
+            with open(path_data_adv, 'wb') as f:
+                pickle.dump(data_adv, f)
+            print(f"aux written to {path_data_adv}")  
+
+        unique_indices = pd.Series(inputs[target_cols].values.ravel('K')).value_counts().index.tolist()
+        if nkw:
+            unique_indices = unique_indices[:nkw]
+            _filter_by_unique(train_data, unique_indices)
+            print(f"len(train_data) = {len(train_data)}.")
+        n = len(unique_indices)
+        value_to_idx = {value: idx for idx, value in enumerate(unique_indices)}
+        chosen_kw_indices = [range(n)]
+        print(f"nkw = {n}. Building F_aux...")
+        Faux = np.zeros((n, n))
+        m = np.zeros((n, n))
+        for i, row in train_data.iterrows():
+            inference_request = row[target_cols].values.tolist()
+            m += np.histogram2d(inference_request, inference_request, bins=(range(n + 1), range(n + 1)))[0]
+            if i % 500000 == 0:
+                print(i, end=' ', flush=True)
+        for j in range(n):
+            if np.sum(m[:, j]) > 0:
+                Faux[:, j] = m[:, j] / np.sum(m[:, j])
+        # for _, row in train_data.iterrows():
+        #     indexes = [value_to_idx[row[col]] for col in target_cols]
+        #     for i in indexes:
+        #         for j in indexes:
+        #             m[i, j] += 1
+        # m = m / m.sum(axis=0)
+        del inputs, train_data
+        return data_adv, Faux, chosen_kw_indices, unique_indices, value_to_idx
+    def _get_traces_ideal(test_data, value_to_idx):
+        test_data[target_cols] = test_data[target_cols].map(lambda v: value_to_idx[v])
+        traces = []
+        for _, row in test_data.iterrows():
+            for i in range(num_features):
+                traces.append((f"{row[f'page_{i}']}_{row[f'idx_{i}']}", row[f'idx_{i}'])) # (doc_id, kw_id)
+        return traces
+    
+    data_adv, Faux, chosen_kw_indices, unique_indices, value_to_idx = _get_data_adv(gen_params['nkw'])
+    full_data_adv = {'dataset': data_adv,
+                     'keywords': chosen_kw_indices,
+                     'frequencies': Faux,
+                     'mode_query': gen_params['mode_query']}
+    print('Generated auxiliary dataset')
+    test_filename = f"{data_path}/outfiles/kt2truthconv.csv"
+    test_data = pd.read_csv(test_filename)
+    if gen_params['nkw']:
+        _filter_by_unique(test_data, unique_indices)
+        assert len(test_data) > 0
+    print(f"nqr = {len(test_data)}. Generating real accesses...")
+    real_queries = test_data[target_cols].values.ravel().tolist()
+    assert len(real_queries) == len(test_data) * num_features
+    print('Generating trace...')
+    observations = {}
+    observations['trace_type'] = 'ap_unique'
+    observations['traces'] = _get_traces_ideal(test_data, value_to_idx)
+    observations['ndocs'] = len(data_adv)
+    print('Done.')
+
+    return full_data_adv, observations, real_queries
 
 def generate_train_test_data(gen_params):
     nkw = gen_params['nkw']
@@ -201,17 +300,20 @@ def run_experiment(exp_param, seed, debug_mode=False):
 
     t0 = time.time()
     np.random.seed(seed)
-    full_data_adv, full_data_client, freq_real = generate_train_test_data(exp_param.gen_params)
-    v_print("Generated train-test data: adv dataset {:d}, client dataset {:d} ({:.1f} secs)".format(len(full_data_adv['dataset']),
-                                                                                                    len(full_data_client['dataset']),
-                                                                                                    time.time() - t0))
 
-    real_queries = generate_keyword_queries(exp_param.gen_params['mode_query'], freq_real, exp_param.gen_params['nqr'])
-    v_print("Generated {:d} real queries ({:.1f} secs)".format(len(real_queries), time.time() - t0))
+    # full_data_adv, full_data_client, freq_real = generate_train_test_data(exp_param.gen_params)
+    # v_print("Generated train-test data: adv dataset {:d}, client dataset {:d} ({:.1f} secs)".format(len(full_data_adv['dataset']),
+    #                                                                                                 len(full_data_client['dataset']),
+    #                                                                                                 time.time() - t0))
 
-    observations, bw_overhead, real_and_dummy_queries = generate_observations(full_data_client, exp_param.def_params, real_queries)
-    v_print("Applied defense ({:.1f} secs)".format(time.time() - t0))
+    # real_queries = generate_keyword_queries(exp_param.gen_params['mode_query'], freq_real, exp_param.gen_params['nqr'])
+    # v_print("Generated {:d} real queries ({:.1f} secs)".format(len(real_queries), time.time() - t0))
 
+    # observations, bw_overhead, real_and_dummy_queries = generate_observations(full_data_client, exp_param.def_params, real_queries)
+    # v_print("Applied defense ({:.1f} secs)".format(time.time() - t0))
+    
+    full_data_adv, observations, real_and_dummy_queries = generate_page_observations(exp_param.gen_params)
+    print("Generated observations ({:.1f} secs)".format(time.time() - t0))
     keyword_predictions_for_each_query = run_attack(exp_param.att_params['name'], obs=observations, aux=full_data_adv, exp_params=exp_param)
     v_print("Done running attack ({:.1f} secs)".format(time.time() - t0))
     time_exp = time.time() - t0

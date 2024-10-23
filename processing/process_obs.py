@@ -66,6 +66,13 @@ def compute_Fobs(def_name, token_trace, n_tokens):
 
     if def_name != 'pancake':
         mj_test = np.histogram2d(token_trace[1:], token_trace[:-1], bins=(range(n_tokens + 1), range(n_tokens + 1)))[0] / (len(token_trace) - 1)
+    elif def_name == 'pages':
+        mj_test = np.zeros((n_tokens, n_tokens))
+        num_features = 26
+        assert len(token_trace) % num_features == 0
+        for i in range(len(token_trace) // num_features):
+            inference_request = token_trace[i * num_features : (i + 1) * num_features]
+            mj_test += np.histogram2d(inference_request, inference_request, bins=(range(n_tokens + 1), range(n_tokens + 1)))[0]
     else:
         mj_test = np.zeros((n_tokens, n_tokens))
         for i in range(3):
