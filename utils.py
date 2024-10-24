@@ -4,18 +4,10 @@ import scipy.stats
 def get_steady_state(markov_matrix):
     n = markov_matrix.shape[0]
     aux = np.vstack((markov_matrix - np.eye(n), np.ones((1, n))))
-    # b = np.zeros(n + 1)
-    # b[-1] = 1
-    # return np.linalg.lstsq(aux, b, rcond=None)[0]
-    column_sums = np.sum(markov_matrix, axis=0)
-    # print(column_sums)
-    print((markov_matrix > 0).all(), np.allclose(column_sums, np.ones(column_sums.shape)))
     if np.linalg.det(aux.T @ aux) == 0:
-        epsilon = 1e-5
-        a = aux.T @ aux
-        a += np.eye(*a.shape) * epsilon
-        print('det', np.linalg.det(a))
-        np.linalg.solve(a, np.ones(n))
+        b = np.zeros(n + 1)
+        b[-1] = 1
+        return np.linalg.lstsq(aux, b, rcond=None)[0]
     return np.linalg.solve(aux.T @ aux, np.ones(n))
 
 
