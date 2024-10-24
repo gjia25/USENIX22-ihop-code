@@ -184,16 +184,11 @@ def generate_page_observations(gen_params):
         print(f"nkw = {n}. Building F_aux...")
         Faux = np.zeros((n, n))
         m = np.zeros((n, n))
-        # trace = []
+        trace = []
         for i, row in train_data.iterrows():
             inference_request = [value_to_idx[(row[f'idx_{i}'],i)] for i in range(1,num_features+1)]
-            # trace += inference_request
-            inference_request = np.array(inference_request)
-            i_indices, j_indices = np.meshgrid(inference_request, inference_request)
-            np.add.at(m, (i_indices.ravel(), j_indices.ravel()), 1)
-            # if i % 100 == 0:
-            #     print(inference_request)
-        # m = np.histogram2d(trace[1:], trace[:-1], bins=(range(n+1), range(n+1)))[0] / (len(trace) - 1)
+            trace += inference_request
+        m = np.histogram2d(trace[1:], trace[:-1], bins=(range(n+1), range(n+1)))[0] / (len(trace) - 1)
         for j in range(n):
             if np.sum(m[:, j]) > 0:
                 Faux[:, j] = m[:, j] / np.sum(m[:, j])

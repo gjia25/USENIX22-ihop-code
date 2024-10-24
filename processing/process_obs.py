@@ -64,18 +64,7 @@ def compute_Fobs(def_name, token_trace, n_tokens):
     nq_per_tok = np.zeros(n_tokens)
     counter = Counter(token_trace[:-1])  # We do not take the last one, because we do not know the transition from that one
     
-    if def_name == 'pages':
-        print('Fobs pages mode')
-        mj_test = np.zeros((n_tokens, n_tokens))
-        num_features = 26
-        assert len(token_trace) % num_features == 0
-        for i in range(len(token_trace) // num_features):
-            inference_request = token_trace[i * num_features : (i + 1) * num_features]
-            inference_request = np.array(inference_request)
-            i_indices, j_indices = np.meshgrid(inference_request, inference_request)
-            np.add.at(mj_test, (i_indices.ravel(), j_indices.ravel()), 1)
-    elif def_name != 'pancake':
-        print('Fobs default mode')
+    if def_name != 'pancake':
         mj_test = np.histogram2d(token_trace[1:], token_trace[:-1], bins=(range(n_tokens + 1), range(n_tokens + 1)))[0] / (len(token_trace) - 1)
     else:
         mj_test = np.zeros((n_tokens, n_tokens))
