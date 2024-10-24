@@ -22,13 +22,15 @@ def get_update_coefficients_functions(token_trace, token_info, aux, obs, exp_par
         ss_aux = utils.get_steady_state(Fexp)
 
         cost_matrix -= Fobs_counts[np.ix_(free_tags, free_tags)].diagonal() * np.log(np.array([Fexp[np.ix_(free_keywords, free_keywords)].diagonal()]).T)
-
+        if np.isnan(cost_matrix).any():
+            print("LINE 26 HAS NANS")
         ss_from_others_train = (Fexp[np.ix_(free_keywords, free_keywords)] *
                                 (np.ones((len(free_keywords), len(free_keywords))) - np.eye(len(free_keywords)))) @ ss_aux[free_keywords]
         ss_from_others_train = ss_from_others_train / (np.sum(ss_aux[free_keywords]) - ss_aux[free_keywords])
         counts_from_others_test = Fobs_counts[np.ix_(free_tags, free_tags)].sum(axis=1) - Fobs_counts[np.ix_(free_tags, free_tags)].diagonal()
         cost_matrix -= counts_from_others_test * np.log(np.array([ss_from_others_train]).T)
-
+        if np.isnan(cost_matrix).any():
+            print("LINE 33 HAS NANS")
         for tag, kw in zip(fixed_tags, fixed_keywords):
             cost_matrix -= Fobs_counts[free_tags, tag] * np.log(np.array([Fexp[free_keywords, kw]]).T)
             cost_matrix -= Fobs_counts[tag, free_tags] * np.log(np.array([Fexp[kw, free_keywords]]).T)
@@ -47,9 +49,10 @@ def get_update_coefficients_functions(token_trace, token_info, aux, obs, exp_par
     Fobs_counts = Fobs * nq_per_tok
 
     # Auxiliary info
-    fexp = get_faux(aux)
+    if exp_params.gen_params['dataset'] != 'pages':
+        fexp = get_faux(aux)
+        Vexp = get_Vexp(aux, exp_params.def_params, att_params['naive'])
     Fexp, rep_to_kw = get_Fexp_and_mapping(aux, exp_params.def_params, att_params['naive'])
-    Vexp = get_Vexp(aux, exp_params.def_params, att_params['naive'])
 
     if mode == 'Vol':
         return _build_cost_Vol_some_fixed, rep_to_kw
@@ -112,9 +115,7 @@ def ihop_attack(obs, aux, exp_params):
         free_replicas = [rep for rep in unknown_reps if rep not in fixed_reps]
 
         c_matrix = compute_coef_matrix(free_replicas, free_tokens, fixed_reps, fixed_tokens)
-        print('Computed...', end='', flush=True)
         row_ind, col_ind = hungarian(c_matrix)
-        print('Solved...', end='', flush=True)
         for j, i in zip(col_ind, row_ind):
             replica_predictions_for_each_token[free_tokens[j]] = free_replicas[i]
 

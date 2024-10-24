@@ -105,12 +105,33 @@ def build_frequencies_from_file(dataset_name, chosen_kw_indices, keywords, aux_d
     return freq_adv, freq_cli, freq_real
 
 def generate_page_observations(gen_params):
-    assert gen_params['dataset'] == 'pages'
-    data_path = "/Users/user/Desktop/Yale/Y2/CPSC581/final"
+    data_path = "/dev/shm" # "/Users/user/Desktop/Yale/Y2/CPSC581/final"
     num_features = 26
     input_cols = [f'page_{i+1}' for i in range(num_features)]
     target_cols = [f'idx_{i+1}' for i in range(num_features)]
-    
+    def _get_id_closest_page(page, page_to_id):
+        if page in page_to_id:
+            return page_to_id[page]
+        sorted_pages = list(page_to_id.keys()) # assume sorted keys
+        
+        if page > sorted_pages[-1]:
+            return page_to_id[sorted_pages[-1]]
+        # binary search for closest page
+        lo = 0
+        hi = len(sorted_pages) - 1
+        while lo <= hi:
+            cur = (hi + lo) // 2
+            if page < sorted_pages[cur]:
+                hi = cur - 1
+            elif page > sorted_pages[cur]:
+                lo = cur + 1
+            else:
+                return page_to_id[sorted_pages[cur]]
+        # lo == hi + 1
+        if sorted_pages[lo] - page < page - sorted_pages[hi]:
+            return page_to_id[sorted_pages[lo]]
+        print(f"{page} not in dict, returning {page_to_id[sorted_pages[hi]]}")
+        return page_to_id[sorted_pages[hi]]    
     def _filter_by_unique(data, unique_indices):
         return data[data[target_cols].isin(unique_indices).all(axis=1)]
     def _get_data_adv(nkw):
@@ -120,8 +141,9 @@ def generate_page_observations(gen_params):
         
         inputs = pd.read_csv(all_filename)
         train_data = pd.read_csv(train_filename)
-        # unique_pages = pd.unique(train_data[input_cols].values.ravel('K'))
-        
+        unique_pages = pd.unique(inputs[input_cols].values.ravel('K'))
+        page_to_idx = {value: idx for idx, value in enumerate(unique_pages)}
+        page_to_idx = dict(sorted(page_to_idx.items()))
         print("Loaded datasets.")
         if os.path.exists(path_data_adv):
             print(f"Loading auxiliary dataset...")
@@ -148,7 +170,7 @@ def generate_page_observations(gen_params):
         unique_indices = pd.Series(inputs[target_cols].values.ravel('K')).value_counts().index.tolist()
         if nkw:
             unique_indices = unique_indices[:nkw]
-            _filter_by_unique(train_data, unique_indices)
+            train_data = _filter_by_unique(train_data, unique_indices)
             print(f"len(train_data) = {len(train_data)}.")
         n = len(unique_indices)
         value_to_idx = {value: idx for idx, value in enumerate(unique_indices)}
@@ -159,11 +181,21 @@ def generate_page_observations(gen_params):
         for i, row in train_data.iterrows():
             inference_request = row[target_cols].values.tolist()
             m += np.histogram2d(inference_request, inference_request, bins=(range(n + 1), range(n + 1)))[0]
-            if i % 500000 == 0:
+            if i % 100 == 0:
+                print(inference_request)
+                print(np.histogram2d(inference_request, inference_request, bins=(range(n + 1), range(n + 1)))[0])
                 print(i, end=' ', flush=True)
         for j in range(n):
             if np.sum(m[:, j]) > 0:
+                print(m[j, j], m[:, j])
                 Faux[:, j] = m[:, j] / np.sum(m[:, j])
+            else:
+                print('COLUMN ZEROES', j)
+                Faux[j, j] = 1
+
+        column_sums = np.sum(Faux, axis=0)
+        print((Faux > 0).all(), np.allclose(column_sums, np.ones(column_sums.shape)))
+        print('Faux - eye:', np.sum(Faux - np.eye(*Faux.shape), axis=0))
         # for _, row in train_data.iterrows():
         #     indexes = [value_to_idx[row[col]] for col in target_cols]
         #     for i in indexes:
@@ -171,25 +203,25 @@ def generate_page_observations(gen_params):
         #             m[i, j] += 1
         # m = m / m.sum(axis=0)
         del inputs, train_data
-        return data_adv, Faux, chosen_kw_indices, unique_indices, value_to_idx
-    def _get_traces_ideal(test_data, value_to_idx):
+        return data_adv, Faux, chosen_kw_indices, unique_indices, value_to_idx, page_to_idx
+    def _get_traces_ideal(test_data, page_to_idx):
         test_data[target_cols] = test_data[target_cols].map(lambda v: value_to_idx[v])
         traces = []
         for _, row in test_data.iterrows():
-            for i in range(num_features):
-                traces.append((f"{row[f'page_{i}']}_{row[f'idx_{i}']}", row[f'idx_{i}'])) # (doc_id, kw_id)
+            for i in range(1,num_features+1):
+                traces.append((f"{row[f'page_{i}']}_{row[f'idx_{i}']}", [_get_id_closest_page(row[f'page_{i}'], page_to_idx)])) # (token_id, [doc_ids])
         return traces
     
-    data_adv, Faux, chosen_kw_indices, unique_indices, value_to_idx = _get_data_adv(gen_params['nkw'])
+    data_adv, Faux, chosen_kw_indices, unique_indices, value_to_idx, page_to_idx = _get_data_adv(gen_params['nkw'])
     full_data_adv = {'dataset': data_adv,
                      'keywords': chosen_kw_indices,
                      'frequencies': Faux,
                      'mode_query': gen_params['mode_query']}
     print('Generated auxiliary dataset')
-    test_filename = f"{data_path}/outfiles/kt2truthconv.csv"
+    test_filename = f"{data_path}/test.csv"# f"{data_path}/outfiles/kt2truthconv.csv"
     test_data = pd.read_csv(test_filename)
     if gen_params['nkw']:
-        _filter_by_unique(test_data, unique_indices)
+        test_data = _filter_by_unique(test_data, unique_indices)
         assert len(test_data) > 0
     print(f"nqr = {len(test_data)}. Generating real accesses...")
     real_queries = test_data[target_cols].values.ravel().tolist()
@@ -300,20 +332,21 @@ def run_experiment(exp_param, seed, debug_mode=False):
 
     t0 = time.time()
     np.random.seed(seed)
+    if exp_param.gen_params['dataset'] != 'pages':
+        full_data_adv, full_data_client, freq_real = generate_train_test_data(exp_param.gen_params)
+        v_print("Generated train-test data: adv dataset {:d}, client dataset {:d} ({:.1f} secs)".format(len(full_data_adv['dataset']),
+                                                                                                        len(full_data_client['dataset']),
+                                                                                                        time.time() - t0))
 
-    # full_data_adv, full_data_client, freq_real = generate_train_test_data(exp_param.gen_params)
-    # v_print("Generated train-test data: adv dataset {:d}, client dataset {:d} ({:.1f} secs)".format(len(full_data_adv['dataset']),
-    #                                                                                                 len(full_data_client['dataset']),
-    #                                                                                                 time.time() - t0))
+        real_queries = generate_keyword_queries(exp_param.gen_params['mode_query'], freq_real, exp_param.gen_params['nqr'])
+        v_print("Generated {:d} real queries ({:.1f} secs)".format(len(real_queries), time.time() - t0))
 
-    # real_queries = generate_keyword_queries(exp_param.gen_params['mode_query'], freq_real, exp_param.gen_params['nqr'])
-    # v_print("Generated {:d} real queries ({:.1f} secs)".format(len(real_queries), time.time() - t0))
-
-    # observations, bw_overhead, real_and_dummy_queries = generate_observations(full_data_client, exp_param.def_params, real_queries)
-    # v_print("Applied defense ({:.1f} secs)".format(time.time() - t0))
+        observations, bw_overhead, real_and_dummy_queries = generate_observations(full_data_client, exp_param.def_params, real_queries)
+        v_print("Applied defense ({:.1f} secs)".format(time.time() - t0))
+    else:
+        full_data_adv, observations, real_and_dummy_queries = generate_page_observations(exp_param.gen_params)
+        print("Generated observations ({:.1f} secs)".format(time.time() - t0))
     
-    full_data_adv, observations, real_and_dummy_queries = generate_page_observations(exp_param.gen_params)
-    print("Generated observations ({:.1f} secs)".format(time.time() - t0))
     keyword_predictions_for_each_query = run_attack(exp_param.att_params['name'], obs=observations, aux=full_data_adv, exp_params=exp_param)
     v_print("Done running attack ({:.1f} secs)".format(time.time() - t0))
     time_exp = time.time() - t0
