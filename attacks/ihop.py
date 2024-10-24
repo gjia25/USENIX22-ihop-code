@@ -41,7 +41,7 @@ def get_update_coefficients_functions(token_trace, token_info, aux, obs, exp_par
     # Observations
     Vobs = compute_Vobs(obs['trace_type'], token_info, ndocs)
     fobs = compute_fobs(exp_params.def_params['name'], token_trace, len(token_info))
-    nq_per_tok, Fobs = compute_Fobs(exp_params.def_params['name'], token_trace, len(token_info))
+    nq_per_tok, Fobs = compute_Fobs(exp_params.def_params['name'] if exp_params.gen_params['dataset'] != 'pages' else 'pages', token_trace, len(token_info))
     Fobs_counts = Fobs * nq_per_tok
 
     # Auxiliary info

@@ -133,13 +133,18 @@ def generate_page_observations(gen_params):
         print(f"{page} not in dict, returning {page_to_id[sorted_pages[hi]]}")
         return page_to_id[sorted_pages[hi]]    
     def _filter_by_unique(data, unique_indices):
-        return data[data[target_cols].isin(unique_indices).all(axis=1)]
+        mask = pd.Series([True] * len(data))
+        for i in range(1, num_features + 1):
+            pairs = [(val,i) for val in data[f'idx_{i}']]
+            mask &= pd.Series(pairs).isin(unique_indices)
+        return data[mask]
     def _get_data_adv(nkw):
         all_filename = f"{data_path}/all.csv"
         train_filename = f"{data_path}/train.csv"
         path_data_adv = f"{data_path}/data_adv.pkl"
         
         inputs = pd.read_csv(all_filename)
+        inputs = inputs.sample(n=100, random_state=42) # TODO: pass n as parameter
         train_data = pd.read_csv(train_filename)
         unique_pages = pd.unique(inputs[input_cols].values.ravel('K'))
         page_to_idx = {value: idx for idx, value in enumerate(unique_pages)}
@@ -167,51 +172,47 @@ def generate_page_observations(gen_params):
                 pickle.dump(data_adv, f)
             print(f"aux written to {path_data_adv}")  
 
-        unique_indices = pd.Series(inputs[target_cols].values.ravel('K')).value_counts().index.tolist()
-        if nkw:
-            unique_indices = unique_indices[:nkw]
-            train_data = _filter_by_unique(train_data, unique_indices)
-            print(f"len(train_data) = {len(train_data)}.")
+        unique_indices = set()
+        for i in range(1,num_features+1):
+            entries = inputs[f'idx_{i}']
+            unique_indices.update((value, i) for value in entries)
+        train_data = _filter_by_unique(train_data, unique_indices)
+        print(f"len(train_data) = {len(train_data)}.")
         n = len(unique_indices)
         value_to_idx = {value: idx for idx, value in enumerate(unique_indices)}
-        chosen_kw_indices = [range(n)]
+        chosen_kw_indices = list(range(n))
         print(f"nkw = {n}. Building F_aux...")
         Faux = np.zeros((n, n))
         m = np.zeros((n, n))
+        # trace = []
         for i, row in train_data.iterrows():
-            inference_request = row[target_cols].values.tolist()
-            m += np.histogram2d(inference_request, inference_request, bins=(range(n + 1), range(n + 1)))[0]
-            if i % 100 == 0:
-                print(inference_request)
-                print(np.histogram2d(inference_request, inference_request, bins=(range(n + 1), range(n + 1)))[0])
-                print(i, end=' ', flush=True)
+            inference_request = [value_to_idx[(row[f'idx_{i}'],i)] for i in range(1,num_features+1)]
+            # trace += inference_request
+            inference_request = np.array(inference_request)
+            i_indices, j_indices = np.meshgrid(inference_request, inference_request)
+            np.add.at(m, (i_indices.ravel(), j_indices.ravel()), 1)
+            # if i % 100 == 0:
+            #     print(inference_request)
+        # m = np.histogram2d(trace[1:], trace[:-1], bins=(range(n+1), range(n+1)))[0] / (len(trace) - 1)
         for j in range(n):
             if np.sum(m[:, j]) > 0:
-                print(m[j, j], m[:, j])
                 Faux[:, j] = m[:, j] / np.sum(m[:, j])
             else:
-                print('COLUMN ZEROES', j)
                 Faux[j, j] = 1
-
         column_sums = np.sum(Faux, axis=0)
         print((Faux > 0).all(), np.allclose(column_sums, np.ones(column_sums.shape)))
         print('Faux - eye:', np.sum(Faux - np.eye(*Faux.shape), axis=0))
-        # for _, row in train_data.iterrows():
-        #     indexes = [value_to_idx[row[col]] for col in target_cols]
-        #     for i in indexes:
-        #         for j in indexes:
-        #             m[i, j] += 1
-        # m = m / m.sum(axis=0)
         del inputs, train_data
         return data_adv, Faux, chosen_kw_indices, unique_indices, value_to_idx, page_to_idx
-    def _get_traces_ideal(test_data, page_to_idx):
-        test_data[target_cols] = test_data[target_cols].map(lambda v: value_to_idx[v])
+    def _get_traces_ideal(test_data, page_to_idx, value_to_idx):
         traces = []
+        real_queries = []
         for _, row in test_data.iterrows():
             for i in range(1,num_features+1):
                 traces.append((f"{row[f'page_{i}']}_{row[f'idx_{i}']}", [_get_id_closest_page(row[f'page_{i}'], page_to_idx)])) # (token_id, [doc_ids])
-        return traces
-    
+                real_queries.append(value_to_idx[(row[f'idx_{i}'],i)])
+        return traces, real_queries
+
     data_adv, Faux, chosen_kw_indices, unique_indices, value_to_idx, page_to_idx = _get_data_adv(gen_params['nkw'])
     full_data_adv = {'dataset': data_adv,
                      'keywords': chosen_kw_indices,
@@ -223,13 +224,12 @@ def generate_page_observations(gen_params):
     if gen_params['nkw']:
         test_data = _filter_by_unique(test_data, unique_indices)
         assert len(test_data) > 0
-    print(f"nqr = {len(test_data)}. Generating real accesses...")
-    real_queries = test_data[target_cols].values.ravel().tolist()
+    print(f"nqr = {len(test_data)}. Generating trace, real accesses...")
+    traces, real_queries = _get_traces_ideal(test_data, page_to_idx, value_to_idx)
     assert len(real_queries) == len(test_data) * num_features
-    print('Generating trace...')
     observations = {}
     observations['trace_type'] = 'ap_unique'
-    observations['traces'] = _get_traces_ideal(test_data, value_to_idx)
+    observations['traces'] = traces
     observations['ndocs'] = len(data_adv)
     print('Done.')
 
