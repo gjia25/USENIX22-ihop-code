@@ -22,15 +22,11 @@ def get_update_coefficients_functions(token_trace, token_info, aux, obs, exp_par
         ss_aux = utils.get_steady_state(Fexp)
 
         cost_matrix -= Fobs_counts[np.ix_(free_tags, free_tags)].diagonal() * np.log(np.array([Fexp[np.ix_(free_keywords, free_keywords)].diagonal()]).T)
-        if np.isnan(cost_matrix).any():
-            print("LINE 26 HAS NANS")
         ss_from_others_train = (Fexp[np.ix_(free_keywords, free_keywords)] *
                                 (np.ones((len(free_keywords), len(free_keywords))) - np.eye(len(free_keywords)))) @ ss_aux[free_keywords]
         ss_from_others_train = ss_from_others_train / (np.sum(ss_aux[free_keywords]) - ss_aux[free_keywords])
         counts_from_others_test = Fobs_counts[np.ix_(free_tags, free_tags)].sum(axis=1) - Fobs_counts[np.ix_(free_tags, free_tags)].diagonal()
         cost_matrix -= counts_from_others_test * np.log(np.array([ss_from_others_train]).T)
-        if np.isnan(cost_matrix).any():
-            print("LINE 33 HAS NANS")
         for tag, kw in zip(fixed_tags, fixed_keywords):
             cost_matrix -= Fobs_counts[free_tags, tag] * np.log(np.array([Fexp[free_keywords, kw]]).T)
             cost_matrix -= Fobs_counts[tag, free_tags] * np.log(np.array([Fexp[kw, free_keywords]]).T)
