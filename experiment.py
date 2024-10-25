@@ -107,8 +107,9 @@ def build_frequencies_from_file(dataset_name, chosen_kw_indices, keywords, aux_d
 def generate_page_observations(gen_params):
     data_path = "/dev/shm" # "/Users/user/Desktop/Yale/Y2/CPSC581/final"
     num_features = 26
-    input_cols = [f'page_{i+1}' for i in range(num_features)]
-    target_cols = [f'idx_{i+1}' for i in range(num_features)]
+    tables = list(range(1, num_features+1))
+    input_cols = [f'page_{i}' for i in tables]
+    target_cols = [f'idx_{i}' for i in tables]
     def _get_id_closest_page(page, page_to_id):
         if page in page_to_id:
             return page_to_id[page]
@@ -134,7 +135,7 @@ def generate_page_observations(gen_params):
         return page_to_id[sorted_pages[hi]]    
     def _filter_by_unique(data, unique_indices):
         mask = pd.Series([True] * len(data))
-        for i in range(1, num_features + 1):
+        for i in tables:
             pairs = [(val,i) for val in data[f'idx_{i}']]
             mask &= pd.Series(pairs).isin(unique_indices)
         return data[mask]
@@ -143,13 +144,14 @@ def generate_page_observations(gen_params):
         train_filename = f"{data_path}/train.csv"
         path_data_adv = f"{data_path}/data_adv.pkl"
         
+        print("Loading datasets... num_samps =", num_samps := 50)
         inputs = pd.read_csv(all_filename)
-        inputs = inputs.sample(n=100, random_state=42) # TODO: pass n as parameter
+        inputs = inputs.sample(n=num_samps, random_state=42) # TODO: pass n as parameter
         train_data = pd.read_csv(train_filename)
         unique_pages = pd.unique(inputs[input_cols].values.ravel('K'))
         page_to_idx = {value: idx for idx, value in enumerate(unique_pages)}
         page_to_idx = dict(sorted(page_to_idx.items()))
-        print("Loaded datasets.")
+        
         if os.path.exists(path_data_adv):
             print(f"Loading auxiliary dataset...")
             with open(path_data_adv, 'rb') as f:
@@ -159,7 +161,7 @@ def generate_page_observations(gen_params):
             # data_adv = [[train_data.iloc[row][col]] for row in range(len(train_data)) for col in target_cols]
             page_to_indices = {}
             for i, row in train_data.iterrows():
-                for j in range(1,num_features+1):
+                for j in tables:
                     page = row[f'page_{j}']
                     if page not in page_to_indices:
                         page_to_indices[page] = set()
@@ -173,7 +175,7 @@ def generate_page_observations(gen_params):
             print(f"aux written to {path_data_adv}")  
 
         unique_indices = set()
-        for i in range(1,num_features+1):
+        for i in tables:
             entries = inputs[f'idx_{i}']
             unique_indices.update((value, i) for value in entries)
         train_data = _filter_by_unique(train_data, unique_indices)
@@ -186,7 +188,7 @@ def generate_page_observations(gen_params):
         m = np.zeros((n, n))
         trace = []
         for i, row in train_data.iterrows():
-            inference_request = [value_to_idx[(row[f'idx_{i}'],i)] for i in range(1,num_features+1)]
+            inference_request = [value_to_idx[(row[f'idx_{i}'],i)] for i in tables]
             trace += inference_request
         m = np.histogram2d(trace[1:], trace[:-1], bins=(range(n+1), range(n+1)))[0] / (len(trace) - 1)
         for j in range(n):
@@ -203,7 +205,7 @@ def generate_page_observations(gen_params):
         traces = []
         real_queries = []
         for _, row in test_data.iterrows():
-            for i in range(1,num_features+1):
+            for i in tables:
                 traces.append((f"{row[f'page_{i}']}_{row[f'idx_{i}']}", [_get_id_closest_page(row[f'page_{i}'], page_to_idx)])) # (token_id, [doc_ids])
                 real_queries.append(value_to_idx[(row[f'idx_{i}'],i)])
         return traces, real_queries
@@ -221,7 +223,7 @@ def generate_page_observations(gen_params):
         assert len(test_data) > 0
     print(f"nqr = {len(test_data)}. Generating trace, real accesses...")
     traces, real_queries = _get_traces_ideal(test_data, page_to_idx, value_to_idx)
-    assert len(real_queries) == len(test_data) * num_features
+    assert len(real_queries) == len(test_data) * len(tables)
     observations = {}
     observations['trace_type'] = 'ap_unique'
     observations['traces'] = traces
@@ -346,14 +348,19 @@ def run_experiment(exp_param, seed, debug_mode=False):
     v_print("Done running attack ({:.1f} secs)".format(time.time() - t0))
     time_exp = time.time() - t0
 
+    out_path = f'res_{t0}.pkl'
+    with open(out_path, 'wb') as f:
+        pickle.dump((real_and_dummy_queries, keyword_predictions_for_each_query), f)
     # Compute accuracy
     if type(keyword_predictions_for_each_query) == list and type(keyword_predictions_for_each_query[0]) != list:
+        print(f'{out_path} contains format 1 of real_and_dummy_queries, keyword_predictions_for_each_query')
         acc_vector = np.array([1 if query == prediction else 0 for query, prediction in zip(real_and_dummy_queries, keyword_predictions_for_each_query)])
         acc_un_vector = np.array([np.mean(acc_vector[real_and_dummy_queries == i]) for i in set(real_and_dummy_queries)])
         accuracy = np.mean(acc_vector)
         accuracy_un = np.mean(acc_un_vector)
         return accuracy, accuracy_un, time_exp
     elif type(keyword_predictions_for_each_query) == list and type(keyword_predictions_for_each_query[0]) == list:
+        print(f'{out_path} contains format 2 of real_and_dummy_queries, keyword_predictions_for_each_query')
         acc_list, acc_un_list = [], []
         for pred in keyword_predictions_for_each_query:
             acc_vector = np.array([1 if query == prediction else 0 for query, prediction in zip(real_and_dummy_queries, pred)])
