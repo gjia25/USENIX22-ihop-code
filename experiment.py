@@ -105,9 +105,9 @@ def build_frequencies_from_file(dataset_name, chosen_kw_indices, keywords, aux_d
     return freq_adv, freq_cli, freq_real
 
 def generate_page_observations(gen_params):
-    data_path = "/dev/shm" # "/Users/user/Desktop/Yale/Y2/CPSC581/final"
+    data_path = "../data" # "/Users/user/Desktop/Yale/Y2/CPSC581/final"
     num_features = 26
-    tables = list(range(1, num_features+1))
+    tables = [1,2,5,6,8,9,14,17,19,20,22,23,25]
     input_cols = [f'page_{i}' for i in tables]
     target_cols = [f'idx_{i}' for i in tables]
     def _get_id_closest_page(page, page_to_id):
@@ -144,9 +144,8 @@ def generate_page_observations(gen_params):
         train_filename = f"{data_path}/train.csv"
         path_data_adv = f"{data_path}/data_adv.pkl"
         
-        print("Loading datasets... num_samps =", num_samps := 50)
+        print("Loading datasets...")
         inputs = pd.read_csv(all_filename)
-        inputs = inputs.sample(n=num_samps, random_state=42) # TODO: pass n as parameter
         train_data = pd.read_csv(train_filename)
         unique_pages = pd.unique(inputs[input_cols].values.ravel('K'))
         page_to_idx = {value: idx for idx, value in enumerate(unique_pages)}
@@ -158,7 +157,6 @@ def generate_page_observations(gen_params):
                 data_adv = pickle.load(f)
         else:
             print(f"Building auxiliary dataset...")              
-            # data_adv = [[train_data.iloc[row][col]] for row in range(len(train_data)) for col in target_cols]
             page_to_indices = {}
             for i, row in train_data.iterrows():
                 for j in tables:
@@ -178,7 +176,6 @@ def generate_page_observations(gen_params):
         for i in tables:
             entries = inputs[f'idx_{i}']
             unique_indices.update((value, i) for value in entries)
-        train_data = _filter_by_unique(train_data, unique_indices)
         print(f"len(train_data) = {len(train_data)}.")
         n = len(unique_indices)
         value_to_idx = {value: idx for idx, value in enumerate(unique_indices)}
@@ -218,9 +215,6 @@ def generate_page_observations(gen_params):
     print('Generated auxiliary dataset')
     test_filename = f"{data_path}/test.csv"# f"{data_path}/outfiles/kt2truthconv.csv"
     test_data = pd.read_csv(test_filename)
-    if gen_params['nkw']:
-        test_data = _filter_by_unique(test_data, unique_indices)
-        assert len(test_data) > 0
     print(f"nqr = {len(test_data)}. Generating trace, real accesses...")
     traces, real_queries = _get_traces_ideal(test_data, page_to_idx, value_to_idx)
     assert len(real_queries) == len(test_data) * len(tables)
