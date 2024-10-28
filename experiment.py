@@ -203,7 +203,7 @@ def generate_page_observations(gen_params):
         real_queries = []
         for _, row in test_data.iterrows():
             for i in tables:
-                traces.append((f"{row[f'page_{i}']}_{row[f'idx_{i}']}", [_get_id_closest_page(row[f'page_{i}'], page_to_idx)])) # (token_id, [doc_ids])
+                traces.append((f"{row[f'page_{i}']}_{row[f'idx_{i}']}_{i}", [_get_id_closest_page(row[f'page_{i}'], page_to_idx)])) # (token_id, [doc_ids])
                 real_queries.append(value_to_idx[(row[f'idx_{i}'],i)])
         return traces, real_queries
     def _get_traces_real(test_data, page_to_idx, value_to_idx):
