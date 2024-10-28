@@ -206,6 +206,14 @@ def generate_page_observations(gen_params):
                 traces.append((f"{row[f'page_{i}']}_{row[f'idx_{i}']}", [_get_id_closest_page(row[f'page_{i}'], page_to_idx)])) # (token_id, [doc_ids])
                 real_queries.append(value_to_idx[(row[f'idx_{i}'],i)])
         return traces, real_queries
+    def _get_traces_real(test_data, page_to_idx, value_to_idx):
+        traces = []
+        real_queries = []
+        for _, row in test_data.iterrows():
+            for i in tables:
+                traces.append((row[f'page_{i}'], [_get_id_closest_page(row[f'page_{i}'], page_to_idx)])) # (token_id, [doc_ids])
+                real_queries.append(value_to_idx[(row[f'idx_{i}'],i)])
+        return traces, real_queries
 
     data_adv, Faux, chosen_kw_indices, unique_indices, value_to_idx, page_to_idx = _get_data_adv(gen_params['nkw'])
     full_data_adv = {'dataset': data_adv,
@@ -216,7 +224,7 @@ def generate_page_observations(gen_params):
     test_filename = f"{data_path}/test.csv"# f"{data_path}/outfiles/kt2truthconv.csv"
     test_data = pd.read_csv(test_filename)
     print(f"nqr = {len(test_data)}. Generating trace, real accesses...")
-    traces, real_queries = _get_traces_ideal(test_data, page_to_idx, value_to_idx)
+    traces, real_queries = _get_traces_real(test_data, page_to_idx, value_to_idx)
     assert len(real_queries) == len(test_data) * len(tables)
     observations = {}
     observations['trace_type'] = 'ap_unique'
