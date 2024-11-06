@@ -40,6 +40,66 @@ def generate_keyword_queries(mode_query, frequencies, nqr):
         raise ValueError("Frequencies has {:d} dimensions, only 1 or 2 allowed".format(frequencies.ndim))
     return queries
 
+def generate_node_accesses(gen_params):
+    data_path = "../data"
+    target_col = 'seq'
+    def _get_data_adv():
+        all_filename = f"{data_path}/h1.csv"
+        train_filename = f"{data_path}/h1train.csv"
+        test_filename = f"{data_path}/h1test.csv"
+        
+        print("Loading datasets...")
+        inputs = pd.read_csv(all_filename)
+        train_data = pd.read_csv(train_filename)
+        test_data = pd.read_csv(test_filename)
+        print(f"len(train_data) = {len(train_data)}, len(test_data) = {len(test_data)}.")
+        
+        print(f"Building auxiliary dataset...")              
+        unique_indices = set()
+        for i, row in inputs.iterrows():
+            node_ids = list(map(int, row[target_col].split()))
+            unique_indices.update(node_ids)
+        value_to_idx = {value: idx for idx, value in enumerate(unique_indices)}
+        n = len(unique_indices)
+        chosen_kw_indices = list(range(n))
+        
+        data_adv = [[x] for x in unique_indices]
+        print('data_adv', data_adv[:5]) # kws in each doc. assume 1-1
+
+        print(f"nkw = {n}. Building F_aux...")
+        Faux = np.zeros((n, n))
+        m = np.zeros((n, n))
+        trace = []
+        for i, row in train_data.iterrows():
+            inference_request = [value_to_idx[int(v)] for v in row[target_col].split()]
+            trace += inference_request
+        m = np.histogram2d(trace[1:], trace[:-1], bins=(range(n+1), range(n+1)))[0] / (len(trace) - 1)
+        for j in range(n):
+            if np.sum(m[:, j]) > 0:
+                Faux[:, j] = m[:, j] / np.sum(m[:, j])
+            else:
+                Faux[j, j] = 1
+        column_sums = np.sum(Faux, axis=0)
+        print((Faux > 0).all(), np.allclose(column_sums, np.ones(column_sums.shape)))
+        print('Faux - eye:', np.sum(Faux - np.eye(*Faux.shape), axis=0))
+        del inputs, train_data
+        
+        print(f"Generating queries...")
+        real_queries = []
+        for _, row in test_data.iterrows():
+            real_queries += [value_to_idx[int(v)] for v in row[target_col].split()]
+
+        return data_adv, Faux, chosen_kw_indices, page_to_idx, real_queries
+    data_adv, Faux, chosen_kw_indices, page_to_idx, real_queries = _get_data_adv()
+    full_data_adv = {'dataset': data_adv,
+                     'keywords': chosen_kw_indices,
+                     'frequencies': Faux,
+                     'mode_query': gen_params['mode_query']}
+    full_data_client = {'dataset': data_adv, # assumed mode: 'same'
+                        'keywords': chosen_kw_indices,
+                        'frequencies': Faux}
+    
+    return full_data_adv, full_data_client, real_queries
 
 def build_frequencies_from_file(dataset_name, chosen_kw_indices, keywords, aux_dataset_info, mode_fs):
     def _process_markov_matrix(months):
@@ -198,14 +258,6 @@ def generate_page_observations(gen_params):
         print('Faux - eye:', np.sum(Faux - np.eye(*Faux.shape), axis=0))
         del inputs, train_data
         return data_adv, Faux, chosen_kw_indices, unique_indices, value_to_idx, page_to_idx
-    def _get_traces_ideal(test_data, page_to_idx, value_to_idx):
-        traces = []
-        real_queries = []
-        for _, row in test_data.iterrows():
-            for i in tables:
-                traces.append((f"{row[f'page_{i}']}_{row[f'idx_{i}']}_{i}", [_get_id_closest_page(row[f'page_{i}'], page_to_idx)])) # (token_id, [doc_ids])
-                real_queries.append(value_to_idx[(row[f'idx_{i}'],i)])
-        return traces, real_queries
     def _get_traces_real(test_data, page_to_idx, value_to_idx):
         traces = []
         real_queries = []
@@ -331,7 +383,7 @@ def run_experiment(exp_param, seed, debug_mode=False):
 
     t0 = time.time()
     np.random.seed(seed)
-    if exp_param.gen_params['dataset'] != 'pages':
+    if exp_param.gen_params['dataset'] != 'hnsw':
         full_data_adv, full_data_client, freq_real = generate_train_test_data(exp_param.gen_params)
         v_print("Generated train-test data: adv dataset {:d}, client dataset {:d} ({:.1f} secs)".format(len(full_data_adv['dataset']),
                                                                                                         len(full_data_client['dataset']),
@@ -339,12 +391,14 @@ def run_experiment(exp_param, seed, debug_mode=False):
 
         real_queries = generate_keyword_queries(exp_param.gen_params['mode_query'], freq_real, exp_param.gen_params['nqr'])
         v_print("Generated {:d} real queries ({:.1f} secs)".format(len(real_queries), time.time() - t0))
-
-        observations, bw_overhead, real_and_dummy_queries = generate_observations(full_data_client, exp_param.def_params, real_queries)
-        v_print("Applied defense ({:.1f} secs)".format(time.time() - t0))
+    
     else:
-        full_data_adv, observations, real_and_dummy_queries = generate_page_observations(exp_param.gen_params)
-        print("Generated observations ({:.1f} secs)".format(time.time() - t0))
+        full_data_adv, full_data_client, real_queries = generate_node_accesses(exp_param.gen_params)
+        v_print("Generated {:d} real queries ({:.1f} secs)".format(len(real_queries), time.time() - t0))
+
+    observations, bw_overhead, real_and_dummy_queries = generate_observations(full_data_client, exp_param.def_params, real_queries)
+    v_print("Applied defense ({:.1f} secs)".format(time.time() - t0))
+
     
     keyword_predictions_for_each_query = run_attack(exp_param.att_params['name'], obs=observations, aux=full_data_adv, exp_params=exp_param)
     v_print("Done running attack ({:.1f} secs)".format(time.time() - t0))
