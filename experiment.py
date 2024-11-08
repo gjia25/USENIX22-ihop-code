@@ -44,9 +44,9 @@ def generate_node_accesses(gen_params):
     data_path = "../data"
     target_col = 'seq'
     def _get_data_adv():
-        all_filename = f"{data_path}/h1.csv"
-        train_filename = f"{data_path}/h1train.csv"
-        test_filename = f"{data_path}/h1test.csv"
+        all_filename = f"{data_path}/h1s.csv"
+        train_filename = f"{data_path}/h1strain.csv"
+        test_filename = f"{data_path}/h1stest.csv"
         
         print("Loading datasets...")
         inputs = pd.read_csv(all_filename)
@@ -89,8 +89,8 @@ def generate_node_accesses(gen_params):
         for _, row in test_data.iterrows():
             real_queries += [value_to_idx[int(v)] for v in row[target_col].split()]
 
-        return data_adv, Faux, chosen_kw_indices, page_to_idx, real_queries
-    data_adv, Faux, chosen_kw_indices, page_to_idx, real_queries = _get_data_adv()
+        return data_adv, Faux, chosen_kw_indices, real_queries
+    data_adv, Faux, chosen_kw_indices, real_queries = _get_data_adv()
     full_data_adv = {'dataset': data_adv,
                      'keywords': chosen_kw_indices,
                      'frequencies': Faux,
