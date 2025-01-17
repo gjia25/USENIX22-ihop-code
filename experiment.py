@@ -9,7 +9,7 @@ import utils
 from defense import generate_observations
 from collections import Counter
 from config import PRO_DATASET_FOLDER
-
+import sys
 
 def load_pro_dataset(dataset_name):
     full_path = os.path.join(PRO_DATASET_FOLDER, dataset_name + '.pkl')
@@ -41,7 +41,7 @@ def generate_keyword_queries(mode_query, frequencies, nqr):
     return queries
 
 def generate_node_accesses(gen_params):
-    data_path = "../data"
+    data_path = "/Users/user/Desktop/Yale/Y2/CPSC581/final" # "../data"
     target_col = 'seq'
     def _get_data_adv():
         all_filename = f"{data_path}/h1s.csv"
@@ -70,26 +70,27 @@ def generate_node_accesses(gen_params):
         Faux = np.zeros((n, n))
         m = np.zeros((n, n))
         trace = []
+        trace_flat = []
         for i, row in train_data.iterrows():
-            inference_request = [value_to_idx[int(v)] for v in row[target_col].split()]
-            trace += inference_request
-        m = np.histogram2d(trace[1:], trace[:-1], bins=(range(n+1), range(n+1)))[0] / (len(trace) - 1)
+            trace_flat += [value_to_idx[int(v)] for v in row[target_col].split()]
+            trace.append([value_to_idx[int(v)] for v in row[target_col].split()])
+        m = np.histogram2d(trace_flat[1:], trace_flat[:-1], bins=(range(n+1), range(n+1)))[0] / (len(trace_flat) - 1)
         for j in range(n):
             if np.sum(m[:, j]) > 0:
                 Faux[:, j] = m[:, j] / np.sum(m[:, j])
             else:
                 Faux[j, j] = 1
         column_sums = np.sum(Faux, axis=0)
+        # XXX: some entries are negative?!?!?
         print((Faux > 0).all(), np.allclose(column_sums, np.ones(column_sums.shape)))
-        print('Faux - eye:', np.sum(Faux - np.eye(*Faux.shape), axis=0))
         del inputs, train_data
         
         print(f"Generating queries...")
         real_queries = []
         for _, row in test_data.iterrows():
-            real_queries += [value_to_idx[int(v)] for v in row[target_col].split()]
+            real_queries.append([value_to_idx[int(v)] for v in row[target_col].split()])
 
-        return data_adv, Faux, chosen_kw_indices, real_queries
+        return data_adv, Faux, chosen_kw_indices, (trace, real_queries) # trace = train, real_queries = test
     data_adv, Faux, chosen_kw_indices, real_queries = _get_data_adv()
     full_data_adv = {'dataset': data_adv,
                      'keywords': chosen_kw_indices,
@@ -398,7 +399,7 @@ def run_experiment(exp_param, seed, debug_mode=False):
 
     observations, bw_overhead, real_and_dummy_queries = generate_observations(full_data_client, exp_param.def_params, real_queries)
     v_print("Applied defense ({:.1f} secs)".format(time.time() - t0))
-
+    sys.exit(0)
     
     keyword_predictions_for_each_query = run_attack(exp_param.att_params['name'], obs=observations, aux=full_data_adv, exp_params=exp_param)
     v_print("Done running attack ({:.1f} secs)".format(time.time() - t0))

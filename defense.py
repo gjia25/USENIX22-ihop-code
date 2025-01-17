@@ -1,11 +1,12 @@
 import numpy as np
 import utils
 import itertools
+import pickle
 from time import time
 from collections import defaultdict
 
 
-def generate_observations(full_data_client, def_params, real_queries):
+def generate_observations(full_data_client, def_params, queries):
     """kw_id is the id wrt to this run (e.g., 0, 1, 2, ...nkw)
     keywords are ids wrt the original full dataset (i.e., they represent the actual keyword)
     We need gen_params to get ground truth queries (if any)
@@ -82,31 +83,40 @@ def generate_observations(full_data_client, def_params, real_queries):
         permutation = np.random.permutation(2 * nkw)
         aux = [0] + list(np.cumsum(replicas_per_kw, dtype=int))
         kw_id_to_replica = [tuple(permutation[aux[i]: aux[i + 1]]) for i in range(len(aux) - 1)]
+        for idx,split in enumerate(queries):
+            overall_traces = []
+            real_and_dummy_queries = []
+            save_path = f'traces_{"train" if idx == 0 else "test"}.pkl'
+            print(f"Generating traces for {save_path}")
+            for real_queries in split:
+                traces = []
+                nq = len(real_queries)
+                perm = np.random.permutation(3 * nq)
+                separation = np.random.binomial(3 * nq, 0.5)
+                indices_real_slots, indices_dummy_slots = perm[:separation], perm[separation:]
+                indices_real_slots.sort()
+                indices_for_each_true_message = []
+                real_slots_copy = indices_real_slots.copy()
+                for i in range(0, 3 * nq, 3):
+                    try:
+                        index = next(filter(lambda x: real_slots_copy[x] >= i, range(len(real_slots_copy))))
+                    except StopIteration:
+                        break
+                    indices_for_each_true_message.append(real_slots_copy[index])
+                    real_slots_copy = real_slots_copy[(index + 1):]
 
-        nq = len(real_queries)
-        perm = np.random.permutation(3 * nq)
-        separation = np.random.binomial(3 * nq, 0.5)
-        indices_real_slots, indices_dummy_slots = perm[:separation], perm[separation:]
-        indices_real_slots.sort()
-        indices_for_each_true_message = []
-        real_slots_copy = indices_real_slots.copy()
-        for i in range(0, 3 * nq, 3):
-            try:
-                index = next(filter(lambda x: real_slots_copy[x] >= i, range(len(real_slots_copy))))
-            except StopIteration:
-                break
-            indices_for_each_true_message.append(real_slots_copy[index])
-            real_slots_copy = real_slots_copy[(index + 1):]
+                trace_no_replicas = -np.ones(3 * nq, dtype=int)
+                trace_no_replicas[indices_dummy_slots] = np.random.choice(nkw + 1, len(indices_dummy_slots), replace=True, p=prob_dummies)
+                trace_no_replicas[indices_real_slots] = np.random.choice(nkw + 1, len(indices_real_slots), replace=True, p=prob_reals)
+                trace_no_replicas[indices_for_each_true_message] = real_queries[:len(indices_for_each_true_message)]
 
-        trace_no_replicas = -np.ones(3 * nq, dtype=int)
-        trace_no_replicas[indices_dummy_slots] = np.random.choice(nkw + 1, len(indices_dummy_slots), replace=True, p=prob_dummies)
-        trace_no_replicas[indices_real_slots] = np.random.choice(nkw + 1, len(indices_real_slots), replace=True, p=prob_reals)
-        trace_no_replicas[indices_for_each_true_message] = real_queries[:len(indices_for_each_true_message)]
-
-        for kw_id in trace_no_replicas:
-            traces.append((np.random.choice(kw_id_to_replica[kw_id]), 1))  # Volume is 1
-
-        real_and_dummy_queries = trace_no_replicas
+                for kw_id in trace_no_replicas:
+                    traces.append(np.random.choice(kw_id_to_replica[kw_id])) # traces.append((np.random.choice(kw_id_to_replica[kw_id]), 1))  # Volume is 1
+                overall_traces.append(traces)
+                real_and_dummy_queries.append(trace_no_replicas)
+            with open(save_path, 'wb') as f:
+                pickle.dump((overall_traces, real_and_dummy_queries, split), f)
+                print(f"Traces saved to {save_path}")
 
         bw_overhead = 3
 
