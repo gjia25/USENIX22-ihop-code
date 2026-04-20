@@ -6,9 +6,8 @@ import attacks
 from matplotlib import pyplot as plt
 import utils
 from defense import generate_observations
-from collections import Counter
-from config import PRO_DATASET_FOLDER
-
+from collections import Counter, defaultdict
+from config import *
 
 def load_pro_dataset(dataset_name):
     full_path = os.path.join(PRO_DATASET_FOLDER, dataset_name + '.pkl')
@@ -21,91 +20,99 @@ def load_pro_dataset(dataset_name):
     return dataset, keywords, aux
 
 
-def generate_keyword_queries(mode_query, frequencies, nqr):
-    nkw = frequencies.shape[0]
-    if mode_query == 'iid':
-        assert frequencies.ndim == 1
-        queries = list(np.random.choice(list(range(nkw)), nqr, p=frequencies))
-    elif mode_query == 'markov':
+def generate_keyword_queries(mode_query, frequencies, nqr, nkw):
+    # mode_query should always be 'markov' for the scenarios we consider.
+    if mode_query == 'markov':
         assert frequencies.ndim == 2
-        ss = utils.get_steady_state(frequencies)
-        queries = np.zeros(nqr, dtype=int)
-        queries[0] = np.random.choice(len(range(nkw)), p=ss)
-        for i in range(1, nqr):
-            queries[i] = np.random.choice(len(range(nkw)), p=frequencies[:, queries[i - 1]])
-    elif mode_query == 'each':
-        queries = list(np.random.permutation(nkw))[:min(nqr, nkw)]
+
+        ## TRANSCRIPT GENERATION
+        queries = []
+
+        while len(queries) < nqr:
+            # pick a keyword
+            kwQuery = np.random.choice(list(range(nkw)), p=frequencies[:nkw, nkw])
+
+            # pick a document based on the keyword
+            docQuery = np.random.choice(list(range(nkw, len(frequencies))), p=frequencies[nkw:, kwQuery]) # for a skewed distribution, include that as p here
+
+            queries.append(kwQuery)
+            queries.append(docQuery)
+
     else:
         raise ValueError("Frequencies has {:d} dimensions, only 1 or 2 allowed".format(frequencies.ndim))
     return queries
 
+def build_frequencies_from_file(chosen_kw_indices, chosen_doc_indices, dataset, trends):
+    num_keys = len(chosen_kw_indices) + len(chosen_doc_indices)
+    freq_real = np.zeros((num_keys, num_keys))
 
-def build_frequencies_from_file(dataset_name, chosen_kw_indices, keywords, aux_dataset_info, mode_fs):
-    def _process_markov_matrix(months):
-
-        m = np.zeros((nkw, nkw))
-        msink = np.zeros(nkw)
-        for month in months:
-            m += aux_dataset_info['transitions'][month][np.ix_(chosen_kw_indices, chosen_kw_indices)]
-            msink += aux_dataset_info['transitions'][month][chosen_kw_indices, -1]
-
-        sink_profile = msink / np.sum(msink)
-        cols_sunk = [val[0] for val in np.argwhere(m.sum(axis=0) == 0)]
-        m[:, cols_sunk] = np.ones(len(cols_sunk)) * msink.reshape(nkw, 1)
-
-        # Add a certain probability of restart
-        m = m / m.sum(axis=0)
-        p_restart = 0.05  # DONE!
-        m_new = (1 - p_restart) * m + p_restart * sink_profile.reshape(len(sink_profile), 1)
-
-        # m_markov = m_new / m_new.sum(axis=0)
-        ss = utils.get_steady_state(m_new)
-        if any(ss < -1e-8):
-            print(ss[ss < 0])
-        return m_new
-
-    nkw = len(chosen_kw_indices)
-    if dataset_name in ('enron-full', 'lucene', 'bow-nytimes', 'articles1', 'movie-plots'):
-        trend_matrix = aux_dataset_info['trends'][chosen_kw_indices, :]
-        for i_col in range(trend_matrix.shape[1]):
-            if sum(trend_matrix[:, i_col]) == 0:
-                print("The {:d}th column of the trend matrix adds up to zero, making it uniform!".format(i_col))
-                trend_matrix[:, i_col] = 1 / nkw
-            else:
-                trend_matrix[:, i_col] = trend_matrix[:, i_col] / sum(trend_matrix[:, i_col])
-        if mode_fs == 'same':  # Take last year of data
-            freq_cli = freq_real = freq_adv = np.mean(trend_matrix, axis=1)
-        elif mode_fs == 'past':  # First half of year for adv, last half is real and client's
-            freq_adv = np.mean(trend_matrix[:, -52:-26], axis=1)
-            freq_cli = freq_real = np.mean(trend_matrix[:, -26:], axis=1)
+    # filter trends to chosen kws, collapse 52 weeks of trend data to a 1d array
+    trend_matrix = trends[chosen_kw_indices, :]
+    for i_col in range(trend_matrix.shape[1]):
+        if sum(trend_matrix[:, i_col]) == 0:
+            print("The {:d}th column of the trend matrix adds up to zero, making it uniform!".format(i_col))
+            trend_matrix[:, i_col] = 1 / len(chosen_kw_indices)
         else:
-            raise ValueError("Frequencies split mode '{:s}' not allowed for {:s}".format(mode_fs, dataset_name))
-    elif dataset_name.startswith('wiki'):
-        # category = dataset_name[5:]
-        if mode_fs == 'same':
-            months_real = range(7, 13)
-            months_adv = range(7, 13)
-        elif mode_fs == 'past':
-            months_real = range(7, 13)
-            months_adv = range(1, 7)
-        elif mode_fs == 'same1':  # December vs December
-            months_real = [12]
-            months_adv = [12]
-        elif mode_fs == 'past1':  # June vs December
-            months_real = [12]
-            months_adv = [6]
-        else:
-            raise ValueError("Frequencies split mode '{:s}' not allowed for {:s}".format(mode_fs, dataset_name))
-        freq_adv = _process_markov_matrix(months_adv)
-        freq_real = _process_markov_matrix(months_real)
-        freq_cli = _process_markov_matrix(months_real)
+            trend_matrix[:, i_col] = trend_matrix[:, i_col] / sum(trend_matrix[:, i_col])
+    kw_freq = np.mean(trend_matrix, axis=1)
+
+    # build transitions from docs to kws. No matter which doc, probability vector of transiting to any kw is kw_freq
+    for doc_idx in range(len(chosen_kw_indices), num_keys):
+        freq_real[0:len(chosen_kw_indices), doc_idx] = kw_freq
+
+    # build transitions from kws to docs
+    if CORR_LEVEL == 'high':
+        # transition probability from kw to first doc containing it is 1, else 0
+        for kw_idx, kw in enumerate(chosen_kw_indices):
+            doc_selected_for_kw = False
+
+            # select random doc containing this kw if HIGH_CORR_PERMUTE, else select first doc containing it
+            docs = np.random.permutation(list(enumerate(chosen_doc_indices))) if HIGH_CORR_PERMUTE else enumerate(chosen_doc_indices)
+
+            for doc_i, doc_n in docs:
+                if doc_selected_for_kw: continue
+
+                doc = dataset[doc_n]
+                doc_idx = doc_i + len(chosen_kw_indices)
+                if kw in doc:
+                    freq_real[doc_idx, kw_idx] = 1
+                    doc_selected_for_kw = True
+                    if kw_idx == 0: print("doc for kw0 is", doc_idx)
     else:
-        raise ValueError("No frequencies for dataset {:s}".format(dataset_name))
-    return freq_adv, freq_cli, freq_real
+        # transition probability from kw for n docs containing it is default 1/n each
+        exp_factor = 1.0
 
+        # possibly weight later indices higher
+        if CORR_LEVEL == 'mid':
+            exp_factor = 1.2
+
+        for kw_idx, kw in enumerate(chosen_kw_indices):
+            weight = 1
+            totalOfWeights = 0
+            for doc_i, doc_n in enumerate(chosen_doc_indices):
+                doc = dataset[doc_n]
+                doc_idx = doc_i + len(chosen_kw_indices)
+                if kw in doc:
+                    weight *= exp_factor
+                    freq_real[doc_idx, kw_idx] = weight
+                    totalOfWeights += weight
+            # normalize so probabilities for each kw sum to 1
+            for doc_i, doc in enumerate(chosen_doc_indices):
+                doc_idx = doc_i + len(chosen_kw_indices)
+                freq_real[doc_idx, kw_idx] /= totalOfWeights
+
+    # sanity check
+    # column i = probability vector of transitioning from token i to other tokens (IHOP appendix D)
+    # sum of column i should be 1
+    import math
+    for r in range(num_keys):
+        assert(math.isclose(sum(freq_real[:, r]), 1))
+
+    return freq_real, freq_real, freq_real
 
 def generate_train_test_data(gen_params):
-    nkw = gen_params['nkw']
+    nkw = gen_params['nkw'] # number of keywords in the datastore
+    ndoc = gen_params['ndoc'] # nubmer of documents in the datastore
     dataset_name = gen_params['dataset']
     mode_kw = gen_params['mode_kw']
     mode_ds = gen_params['mode_ds']
@@ -114,65 +121,24 @@ def generate_train_test_data(gen_params):
 
     # Load the dataset for this experiment
     dataset, keywords, aux_dataset_info = load_pro_dataset(dataset_name)
-    ndoc = len(dataset) if gen_params['ndoc'] == 'full' else min(len(dataset), gen_params['ndoc'])
 
-    # Select the keywords for this experiment
-    if mode_kw == 'top':
-        kw_counter = Counter([kw for document in dataset for kw in document])
-        chosen_kw_indices = sorted(kw_counter.keys(), key=lambda x: kw_counter[x], reverse=True)[:nkw]
-    elif mode_kw == 'rand':
-        permutation = np.random.permutation(len(keywords))
-        chosen_kw_indices = list(permutation[:nkw])
-    else:
-        raise ValueError("Keyword selection mode '{:s}' not allowed".format(mode_kw))
+    # use top strategy to pick keywords - picking most popular minimizes likelihood that some kw appears in no doc
+    chosen_kw_indices = list(range(nkw))
+    # rand strategy: chosen_kw_indices = np.random.permutation(len(keywords))
 
-    # Get client dataset and adversary's auxiliary dataset
-    dataset = [dataset[i] for i in np.random.permutation(len(dataset))[:ndoc]]
-    if mode_ds.startswith('same'):
-        percentage = 100 if mode_ds == 'same' else int(mode_ds[4:])
-        assert 0 < percentage <= 100
-        permutation = np.random.permutation(len(dataset))
-        dataset_selection = [dataset[i] for i in permutation[:int(len(dataset) * percentage / 100)]]
-        data_adv = dataset_selection
-        data_cli = dataset_selection
-    elif mode_ds.startswith('common'):
-        percentage = 50 if mode_ds == 'common' else int(mode_ds[6:])
-        assert 0 < percentage <= 100
-        permutation = np.random.permutation(len(dataset))
-        dataset_selection = [dataset[i] for i in permutation[:int(len(dataset) * percentage / 100)]]
-        data_adv = dataset_selection
-        data_cli = dataset
-    elif mode_ds.startswith('split'):
-        if mode_ds.startswith('splitn'):
-            ndocs_adv = int(mode_ds[6:])
-        else:
-            percentage = 50 if mode_ds == 'split' else int(mode_ds[5:])
-            assert 0 < percentage < 100
-            ndocs_adv = int(len(dataset) * percentage / 100)
-        permutation = np.random.permutation(len(dataset))
-        data_adv = [dataset[i] for i in permutation[:ndocs_adv]]
-        data_cli = [dataset[i] for i in permutation[ndocs_adv:]]
-    else:
-        raise ValueError("Dataset split mode '{:s}' not allowed".format(mode_ds))
+    # use rand strategy to pick docs - could also do with top
+    permutation = np.random.permutation(len(dataset))
+    chosen_doc_indices = list(permutation[:ndoc])
 
-    # Load query frequency info
-    if freq_name == 'file':
-        freq_adv, freq_cli, freq_real = build_frequencies_from_file(dataset_name, chosen_kw_indices, keywords, aux_dataset_info, mode_fs)
-    elif freq_name.startswith('zipf'):
-        shift = int(freq_name[5:]) if freq_name.startswith('zipfs') else 0  # zipfs200 is a zipf with 200 shift
-        aux = np.array([1 / (i + shift + 1) for i in range(nkw)])
-        freq_adv = freq_cli = freq_real = aux / np.sum(aux)
-    elif freq_name == 'none':
-        freq_adv, freq_cli, freq_real = None, None, np.ones(nkw) / nkw
-    else:
-        raise ValueError("Frequency name '{:s}' not implemented yet".format(freq_name))
+    # get Markov transition matrix
+    freq_adv, freq_cli, freq_real = build_frequencies_from_file(chosen_kw_indices, chosen_doc_indices, dataset, aux_dataset_info['trends'])
 
-    full_data_adv = {'dataset': data_adv,
-                     'keywords': chosen_kw_indices,
+    full_data_adv = {'dataset': dataset,
+                     'keywords': range(nkw+ndoc),
                      'frequencies': freq_adv,
                      'mode_query': gen_params['mode_query']}
-    full_data_client = {'dataset': data_cli,
-                        'keywords': chosen_kw_indices,
+    full_data_client = {'dataset': dataset,
+                        'keywords': range(nkw+ndoc),
                         'frequencies': freq_cli}
     return full_data_adv, full_data_client, freq_real
 
