@@ -10,7 +10,7 @@ from config import THETA
 
 def pairs_attack(obs, aux, exp_params):
     """
-    Keyword inference attack exploiting temporal correlations in the SWAT/pancake trace.
+    Keyword inference attack targeting temporal correlations in the SWAT/pancake trace.
 
     Args:
         obs (dict): Observations produced by the defense. Keys:

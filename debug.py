@@ -14,17 +14,8 @@ def print_log(string, file_handle):
     print(string)
     print(string, file=file_handle)
 
-if __name__ == "__main__":
-
-    os.system('mesg n')
-
-    time_init = time.time()
-
-    exp_params = ExpParams()
-    exp_params.set_defense_params('pancake')
-    exp_params.set_general_params(dataset='enron-full', nkw=NKW, ndoc=NKW, nqr=NQR, freq='file', mode_ds='same', mode_fs='same', mode_kw='rand', mode_query='markov')
-    attack_list = [('pairs', {'num_targets': NUM_TARGETS_PAIRS})]
-    log_dir = f"out/{exp_params.def_params['name']}_{exp_params.gen_params['dataset']}_th{THETA}_{CORR_LEVEL}_tg{NUM_TARGETS_PAIRS}_nkw{exp_params.gen_params['nkw']}/"
+def run_experiment_wrapper(exp_params, attack_list):
+    log_dir = f"out/{exp_params.def_params['name']}_{exp_params.gen_params['dataset']}_{exp_params.def_params['name']}_th{THETA}_{CORR_LEVEL}_tg{NUM_TARGETS_PAIRS}_nkw{exp_params.gen_params['nkw']}/"
     os.makedirs(os.path.dirname(log_dir), exist_ok=True)
 
     # save config for this experiment
@@ -57,3 +48,30 @@ if __name__ == "__main__":
         print_log("Summary of results:", f)
         for i_att, (att, att_p) in enumerate(attack_list):
             print_log("{:s}: avg acc={:.3f}, avg accu={:.3f}".format(att, *[np.mean(aux) for aux in zip(*acc_list[i_att])]), f)
+
+if __name__ == "__main__":
+
+    os.system('mesg n')
+
+    time_init = time.time()
+
+    # Pancake
+    exp_params = ExpParams()
+    exp_params.set_defense_params('pancake')
+    exp_params.set_general_params(dataset='enron-full', nkw=NKW, ndoc=NKW, nqr=NQR, freq='file', mode_ds='same', mode_fs='same', mode_kw='rand', mode_query='markov')
+    attack_list = [
+        ('pairs', {'num_targets': NUM_TARGETS_PAIRS}),
+        ('ihop', {'mode': 'Vol', 'niters': 1000, 'pfree': 0.25}),
+    ]
+    run_experiment_wrapper(exp_params, attack_list)
+
+    # SWAT
+    exp_params = ExpParams()
+    exp_params.set_defense_params('swat')
+    exp_params.set_general_params(dataset='enron-full', nkw=NKW, ndoc=NKW, nqr=NQR, freq='file', mode_ds='same', mode_fs='same', mode_kw='rand', mode_query='markov')
+    attack_list = [
+        ('pairs', {'num_targets': NUM_TARGETS_PAIRS}),
+        ('ihop', {'mode': 'Vol', 'niters': 1000, 'pfree': 0.25}),
+    ]
+    run_experiment_wrapper(exp_params, attack_list)
+

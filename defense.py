@@ -14,6 +14,7 @@ def generate_observations(full_data_client, def_params, real_queries):
     dataset = full_data_client['dataset']
     keywords = np.array(full_data_client['keywords'])
     nkw = len(keywords)
+    correct_mapping = None
 
     # Two ways of doing this, the second one is way faster!
     # First:
@@ -33,6 +34,7 @@ def generate_observations(full_data_client, def_params, real_queries):
             traces.append((token_ids[kw_id], inverted_index[kw_id]))
         bw_overhead = 1
         real_and_dummy_queries = real_queries
+        correct_mapping = {token_id: kw_id for kw_id, token_id in enumerate(token_ids)}
 
     elif def_params['name'] == 'clrz':
 
@@ -72,7 +74,7 @@ def generate_observations(full_data_client, def_params, real_queries):
         observations['n_distinct'] = len(set(real_queries))
         real_and_dummy_queries = real_queries
 
-    if def_params['name'] == 'pancake' or def_params['name'] == 'swat':
+    elif def_params['name'] == 'pancake' or def_params['name'] == 'swat':
 
         trace_type = 'tok_vol'
         freal = utils.get_steady_state(full_data_client['frequencies']) if full_data_client['frequencies'].ndim == 2 else full_data_client['frequencies']
@@ -116,6 +118,8 @@ def generate_observations(full_data_client, def_params, real_queries):
                 traces.append((np.random.choice(kw_id_to_replica[kw_id]), 1))  # Volume is 1
 
             real_and_dummy_queries = trace_no_replicas
+        
+        correct_mapping = {int(replica): kw_id for kw_id, replicas in enumerate(kw_id_to_replica) for replica in replicas}
 
     elif def_params['name'] == 'waffle':
         raise NotImplementedError("Waffle defense not yet implemented")
@@ -127,7 +131,6 @@ def generate_observations(full_data_client, def_params, real_queries):
     observations['trace_type'] = trace_type
     observations['ndocs'] = len(dataset)
 
-    correct_mapping = {int(replica): kw_id for kw_id, replicas in enumerate(kw_id_to_replica) for replica in replicas}
     return observations, bw_overhead, real_and_dummy_queries, correct_mapping
 
 

@@ -37,7 +37,7 @@ def get_Faux(aux):
 
 
 def get_Fexp_and_mapping(aux, def_params, naive_flag=False):
-    if not naive_flag and def_params['name'] == 'pancake':
+    if not naive_flag and def_params['name'] in ('pancake', 'swat'):
 
         nkw = len(aux['keywords'])
         nrep = 2 * nkw
@@ -118,7 +118,7 @@ def get_Vexp(aux, def_params, naive_flag=False):
         Vaux = common_elements * tpr * (tpr - fpr) + common_not_elements * fpr * (fpr - tpr) + ndocs * tpr * fpr
         np.fill_diagonal(Vaux, np.diag(common_elements) * tpr + np.diag(common_not_elements) * fpr)
         Vaux = Vaux / ndocs
-    elif def_params['name'] == 'pancake':
+    elif def_params['name'] == 'pancake' or def_params['name'] == 'swat':
         Vaux = np.zeros((2 * nkw, 2 * nkw))
     else:
         raise ValueError("Def name '{:s}' not recognized".format(def_params['name']))

@@ -149,7 +149,7 @@ def run_attack(attack_name, **kwargs):
     elif attack_name == 'sap':
         return attacks.sap_attack(**kwargs)
     elif attack_name == 'ihop':
-        return attacks.ihop_attack(**kwargs)
+        return attacks.ihop_attack(**kwargs), None, None
     elif attack_name == 'umemaya':
         return attacks.umemaya_attack(**kwargs)
     elif attack_name == 'fastpfp':
@@ -192,10 +192,11 @@ def run_experiment(exp_param, seed, debug_mode=False):
 
     v_print("predictions", len(keyword_predictions_for_each_query), keyword_predictions_for_each_query[:50])
     v_print("real and dummy queries", len(real_and_dummy_queries), real_and_dummy_queries[:50])
-    v_print("predicted mapping", len(predicted_mapping), predicted_mapping)
-    correct_predictions = {t: k for t, k in predicted_mapping.items() if t in correct_mapping and correct_mapping[t] == k}
-    v_print("correct predictions", len(correct_predictions), correct_predictions)
-    v_print("correct predictions from correlation matching", {t: k for t, k in correct_predictions.items() if t in corr_token_to_key})
+    if predicted_mapping is not None:
+        v_print("predicted mapping", len(predicted_mapping), predicted_mapping, flush=True)
+        correct_predictions = {t: k for t, k in predicted_mapping.items() if t in correct_mapping and correct_mapping[t] == k}
+        v_print("correct predictions", len(correct_predictions), correct_predictions)
+        v_print("correct predictions from correlation matching", {t: k for t, k in correct_predictions.items() if t in corr_token_to_key})
 
     # Compute accuracy
     if type(keyword_predictions_for_each_query) == list and type(keyword_predictions_for_each_query[0]) != list:

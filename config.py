@@ -1,10 +1,10 @@
 RAW_DATASET_FOLDER = 'datasets_raw'
 PRE_DATASET_FOLDER = 'datasets_pre'
-PRO_DATASET_FOLDER = '../datasets_pro'
+PRO_DATASET_FOLDER = 'datasets_pro'
 
 # debug.py
-NKW = 250
-NQR = 1_000_000
+NKW = 200
+NQR = 100_000
 NITERS = 10_000
 NITER_LIST = [0, 100, 500, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000]
 PFREE = 0.25
