@@ -56,6 +56,7 @@ class ExpParams:
                     'umemaya': {'naive': False},
                     'ihop': {'naive': False, 'mode': 'Vol', 'pfree': 0.25, 'niters': 1000},
                     'fastpfp': {'naive': False, 'alpha': 0.5},
+                    'pairs': {'num_targets': 50},
                     }
         self.att_params = {'name': name}
         for key, default_value in TEMPLATE[name].items():
@@ -63,14 +64,15 @@ class ExpParams:
                 self.att_params[key] = kwargs[key]
             else:
                 self.att_params[key] = default_value
-        # ('Vol', 'Vol_freq', 'Vol_Freq', 'Freq')
         return
 
     def set_defense_params(self, name, **kwargs):
         TEMPLATE = {'none': {},
                     'clrz': {'tpr': 1.0, 'fpr': 0.0},
                     'osse': {'tpr': 1.0, 'fpr': 0.0},
-                    'pancake': {}
+                    'pancake': {},
+                    'swat': {},
+                    'waffle': {},  # stub — not yet implemented
                     }
         assert name in TEMPLATE.keys()
         self.def_params = {'name': name}

@@ -158,6 +158,8 @@ def run_attack(attack_name, **kwargs):
         return attacks.ikk_attack(**kwargs)
     elif attack_name == 'graphm':
         return attacks.graphm_attack(**kwargs)
+    if attack_name == 'pairs':
+        return attacks.pairs_attack(**kwargs)
     else:
         raise ValueError("Attack name '{:s}' not recognized".format(attack_name))
 
@@ -166,21 +168,34 @@ def run_experiment(exp_param, seed, debug_mode=False):
     v_print = print if debug_mode else lambda *a, **k: None
 
     t0 = time.time()
-    np.random.seed(seed)
+    np.random.seed(BASE_SEED + seed)
     full_data_adv, full_data_client, freq_real = generate_train_test_data(exp_param.gen_params)
     v_print("Generated train-test data: adv dataset {:d}, client dataset {:d} ({:.1f} secs)".format(len(full_data_adv['dataset']),
                                                                                                     len(full_data_client['dataset']),
                                                                                                     time.time() - t0))
 
-    real_queries = generate_keyword_queries(exp_param.gen_params['mode_query'], freq_real, exp_param.gen_params['nqr'])
+    real_queries = generate_keyword_queries(exp_param.gen_params['mode_query'], freq_real, exp_param.gen_params['nqr'], exp_param.gen_params['nkw'])
     v_print("Generated {:d} real queries ({:.1f} secs)".format(len(real_queries), time.time() - t0))
 
-    observations, bw_overhead, real_and_dummy_queries = generate_observations(full_data_client, exp_param.def_params, real_queries)
+    observations, bw_overhead, real_and_dummy_queries, correct_mapping = generate_observations(full_data_client, exp_param.def_params, real_queries)
     v_print("Applied defense ({:.1f} secs)".format(time.time() - t0))
 
-    keyword_predictions_for_each_query = run_attack(exp_param.att_params['name'], obs=observations, aux=full_data_adv, exp_params=exp_param)
+    from collections import Counter
+    ctr = Counter(real_and_dummy_queries)
+    counts = [0] * (max(real_and_dummy_queries) + 1)
+    counts = [ctr[item] for item in range(max(real_and_dummy_queries) + 1)]
+    counts = list([c / len(real_and_dummy_queries) for c in counts]) # normalize to between 0 and 1
+
+    keyword_predictions_for_each_query, predicted_mapping, corr_token_to_key = run_attack(exp_param.att_params['name'], obs=observations, aux=full_data_adv, exp_params=exp_param)
     v_print("Done running attack ({:.1f} secs)".format(time.time() - t0))
     time_exp = time.time() - t0
+
+    v_print("predictions", len(keyword_predictions_for_each_query), keyword_predictions_for_each_query[:50])
+    v_print("real and dummy queries", len(real_and_dummy_queries), real_and_dummy_queries[:50])
+    v_print("predicted mapping", len(predicted_mapping), predicted_mapping)
+    correct_predictions = {t: k for t, k in predicted_mapping.items() if t in correct_mapping and correct_mapping[t] == k}
+    v_print("correct predictions", len(correct_predictions), correct_predictions)
+    v_print("correct predictions from correlation matching", {t: k for t, k in correct_predictions.items() if t in corr_token_to_key})
 
     # Compute accuracy
     if type(keyword_predictions_for_each_query) == list and type(keyword_predictions_for_each_query[0]) != list:
@@ -193,10 +208,12 @@ def run_experiment(exp_param, seed, debug_mode=False):
         acc_list, acc_un_list = [], []
         for pred in keyword_predictions_for_each_query:
             acc_vector = np.array([1 if query == prediction else 0 for query, prediction in zip(real_and_dummy_queries, pred)])
-            # print(np.mean(np.array([1 if query == prediction else 0 for query, prediction in zip(real_and_dummy_queries, pred)])), np.mean(np.array([1 if real == prediction else 0 for real, prediction in zip(real_and_dummy_queries, pred)])))
             acc_un_vector = np.array([np.mean(acc_vector[real_and_dummy_queries == i]) for i in set(real_and_dummy_queries)])
             acc_list.append(np.mean(acc_vector))
             acc_un_list.append(np.mean(acc_un_vector))
+
+        v_print("Finished experiment ({:.1f} secs)".format(time.time() - t0))
+
         return acc_list, acc_un_list, time_exp
     else:
         return -1, -1, -1
