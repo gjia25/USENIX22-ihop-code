@@ -186,9 +186,24 @@ def run_experiment(exp_param, seed, debug_mode=False):
     counts = [ctr[item] for item in range(max(real_and_dummy_queries) + 1)]
     counts = list([c / len(real_and_dummy_queries) for c in counts]) # normalize to between 0 and 1
 
-    keyword_predictions_for_each_query, predicted_mapping, corr_token_to_key = run_attack(exp_param.att_params['name'], obs=observations, aux=full_data_adv, exp_params=exp_param)
+    attack_result = run_attack(exp_param.att_params['name'], obs=observations, aux=full_data_adv, exp_params=exp_param)
     v_print("Done running attack ({:.1f} secs)".format(time.time() - t0))
     time_exp = time.time() - t0
+
+    # pairs_attack returns (target_key, top_k_tokens); all others return the old 3-tuple
+    if exp_param.att_params['name'] == 'pairs':
+        target_key, top_k_tokens = attack_result
+        top_k = exp_param.att_params['top_k']
+        # invert correct_mapping (token → key) to find the correct token for target_key
+        inv_mapping = {k: t for t, k in correct_mapping.items()}
+        correct_token = inv_mapping.get(target_key, None)
+        v_print(f"pairs target_key={target_key}, correct_token={correct_token}, top_k_tokens={top_k_tokens}")
+        hits = [1 if (correct_token is not None and correct_token in top_k_tokens[:k])
+                else 0
+                for k in range(1, top_k + 1)]
+        return hits, [], time_exp
+
+    keyword_predictions_for_each_query, predicted_mapping, corr_token_to_key = attack_result
 
     v_print("predictions", len(keyword_predictions_for_each_query), keyword_predictions_for_each_query[:50])
     v_print("real and dummy queries", len(real_and_dummy_queries), real_and_dummy_queries[:50])

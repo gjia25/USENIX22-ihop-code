@@ -56,7 +56,7 @@ class ExpParams:
                     'umemaya': {'naive': False},
                     'ihop': {'naive': False, 'mode': 'Vol', 'pfree': 0.25, 'niters': 1000},
                     'fastpfp': {'naive': False, 'alpha': 0.5},
-                    'pairs': {'num_targets': 50},
+                    'pairs': {'top_k': 5},
                     }
         self.att_params = {'name': name}
         for key, default_value in TEMPLATE[name].items():
