@@ -120,12 +120,14 @@ def ihop_attack(obs, aux, exp_params):
 
         if (k + 1) % (n_iters // 10) == 0:
             print("{:d}".format(((k + 1) // (n_iters // 10)) - 1), end='', flush=True)
-
+    
+    predicted_token_to_key = {token: rep_to_kw[replica_predictions_for_each_token[token]] for token in token_info}
+    
     if not run_multiple_niters:
         keyword_predictions_for_each_query = [rep_to_kw[replica_predictions_for_each_token[token]] for token in token_trace]
-        return keyword_predictions_for_each_query
+        return keyword_predictions_for_each_query, predicted_token_to_key, predicted_token_to_key
     else:
         kw_pred_for_each_query_list = []
         for replica_predictions_for_each_token in rep_pred_tok_list:
             kw_pred_for_each_query_list.append([rep_to_kw[replica_predictions_for_each_token[token]] for token in token_trace])
-        return kw_pred_for_each_query_list
+        return kw_pred_for_each_query_list, predicted_token_to_key, predicted_token_to_key

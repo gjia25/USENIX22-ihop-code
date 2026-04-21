@@ -149,7 +149,7 @@ def run_attack(attack_name, **kwargs):
     elif attack_name == 'sap':
         return attacks.sap_attack(**kwargs)
     elif attack_name == 'ihop':
-        return attacks.ihop_attack(**kwargs), None, None
+        return attacks.ihop_attack(**kwargs)
     elif attack_name == 'umemaya':
         return attacks.umemaya_attack(**kwargs)
     elif attack_name == 'fastpfp':
