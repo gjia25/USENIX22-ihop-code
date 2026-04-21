@@ -5,7 +5,6 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import utils
-from config import THETA
 
 
 def pairs_attack(obs, aux, exp_params):
@@ -83,15 +82,16 @@ def pairs_attack(obs, aux, exp_params):
     # ====================================================================
     # Step 2: Co-occurrence matrix over sliding windows
     #
-    # In pancake + theta-decorr, each real query enters the pool and may
-    # be delayed by up to THETA pool cycles before emission. Each cycle
+    # In SWAt, each real query enters the pool and may
+    # be delayed by up to LATENCY pool cycles before emission. Each cycle
     # emits batch_size=3 observations. So a real query and its Markov
-    # successor always appear within THETA+1 batches, giving a window of
-    # batch_size * (THETA + 1) observations.
+    # successor always appear within LATENCY+1 batches, giving a window of
+    # batch_size * (LATENCY + 1) observations.
     # ====================================================================
 
+    latency = exp_params.att_params['latency']
     batch_size = 3  # pancake emits 3 observations per client query
-    window_size = batch_size * (THETA + 1)
+    window_size = batch_size * (latency + 1)
 
     token_ids = np.array([t for (t, _) in obs['traces']], dtype=np.int32)
     T = len(token_ids)

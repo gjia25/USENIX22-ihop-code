@@ -56,7 +56,7 @@ class ExpParams:
                     'umemaya': {'naive': False},
                     'ihop': {'naive': False, 'mode': 'Vol', 'pfree': 0.25, 'niters': 1000},
                     'fastpfp': {'naive': False, 'alpha': 0.5},
-                    'pairs': {'top_k': 5},
+                    'pairs': {'top_k': 5, 'latency': 1},
                     }
         self.att_params = {'name': name}
         for key, default_value in TEMPLATE[name].items():
@@ -71,7 +71,7 @@ class ExpParams:
                     'clrz': {'tpr': 1.0, 'fpr': 0.0},
                     'osse': {'tpr': 1.0, 'fpr': 0.0},
                     'pancake': {},
-                    'swat': {},
+                    'swat': {'theta': 1, 'sampling_func': 'Exp'}, # sampling_func can be None, "Linear", "Exp"
                     'waffle': {'B': 2500, 'R': 1000, 'fD': 500, 'C': None, 'D': None},
                     }
         assert name in TEMPLATE.keys()

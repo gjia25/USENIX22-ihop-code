@@ -15,7 +15,8 @@ def print_log(string, file_handle):
     print(string, file=file_handle)
 
 def run_experiment_wrapper(exp_params, attack_list):
-    log_dir = f"out/{exp_params.def_params['name']}_{exp_params.gen_params['dataset']}_{exp_params.def_params['name']}_th{THETA}_{CORR_LEVEL}_topk{TOP_K_PAIRS}_nkw{exp_params.gen_params['nkw']}/"
+    theta_tag = f"_th{exp_params.def_params['theta']}" if 'theta' in exp_params.def_params else ""
+    log_dir = f"out/{exp_params.def_params['name']}_{exp_params.gen_params['dataset'][:5]}_{exp_params.def_params['name']}{theta_tag}_{CORR_LEVEL}_top{TOP_K_PAIRS}_nkw{exp_params.gen_params['nkw']}/"
     os.makedirs(os.path.dirname(log_dir), exist_ok=True)
 
     # save config for this experiment
@@ -65,13 +66,22 @@ if __name__ == "__main__":
 
     time_init = time.time()
 
-    attack_list = [
-        ('pairs', {'top_k': TOP_K_PAIRS}),
-    ]
+    thetas = []        # Iterate through powers of 2 for theta
+    t = 1
+    while t < NKW // 2:
+        thetas.append(t)
+        t *= 2
+    thetas.append(NKW // 2)
 
-    # SWAT
-    exp_params = ExpParams()
-    exp_params.set_defense_params('swat')
-    exp_params.set_general_params(dataset='enron-full', nkw=NKW, ndoc=NKW, nqr=NQR, freq='zipf', mode_ds='same', mode_fs='same', mode_kw='rand', mode_query='markov')
-    run_experiment_wrapper(exp_params, attack_list)
+    # Run SWAT with different theta
+    for theta in thetas:
+        latency = theta  # window = 3*(theta+1), matches SWAT pool size
+        print_log(f"\n\nRunning experiment with SWAT theta={theta}...", open(os.devnull, 'w'))
+        exp_params = ExpParams()
+        exp_params.set_defense_params('swat', theta=theta, sampling_func='Exp')
+        exp_params.set_general_params(dataset='enron-full', nkw=NKW, ndoc=NKW, nqr=NQR, freq='file', mode_ds='same', mode_fs='same', mode_kw='rand', mode_query='markov')
+        attack_list = [
+            ('pairs', {'top_k': TOP_K_PAIRS, 'latency': latency})
+        ]
+        run_experiment_wrapper(exp_params, attack_list)
 

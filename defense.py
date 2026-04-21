@@ -91,7 +91,7 @@ def generate_observations(full_data_client, def_params, real_queries):
         bw_overhead = 3
 
         if def_params['name'] == 'swat': # add SWAT sampling pool
-            traces, real_and_dummy_queries = generate_theta_decorr_obs(nkw, kw_id_to_replica, real_queries, prob_reals, prob_dummies)
+            traces, real_and_dummy_queries = generate_theta_decorr_obs(nkw, kw_id_to_replica, real_queries, prob_reals, prob_dummies, def_params['theta'], def_params['sampling_func'])
         else: # just pancake
             nq = len(real_queries)
             perm = np.random.permutation(3 * nq)
@@ -135,11 +135,11 @@ def generate_observations(full_data_client, def_params, real_queries):
     return observations, bw_overhead, real_and_dummy_queries, correct_mapping
 
 
-def generate_theta_decorr_obs(nkw, kw_id_to_replica, real_queries, prob_reals, prob_dummies):
+def generate_theta_decorr_obs(nkw, kw_id_to_replica, real_queries, prob_reals, prob_dummies, theta, sampling_func):
     # SWAT query pool implementation based on original codebase: https://github.com/CongGroup/SWAT/blob/main/query_decorrelation.py
-    from config import NQR, THETA, SAMPLING_FUNC
+    from config import NQR
 
-    que = SamplingPool(THETA, SAMPLING_FUNC)
+    que = SamplingPool(theta, sampling_func)
     q_szs = {} # for debug
     cnt = 0 # counter; essentially a timestamp
 
@@ -165,7 +165,7 @@ def generate_theta_decorr_obs(nkw, kw_id_to_replica, real_queries, prob_reals, p
             if type == 0:
                 idx = np.random.choice(nkw+1, p=prob_dummies)
             else:
-                if que.qsize() > THETA:
+                if que.qsize() > theta:
                     idx, cnt_ = que.get()
                     latencies.append(cnt - cnt_)
                     type = 0 # not a real query from transcript
@@ -197,11 +197,11 @@ class SamplingPool:
         self.q_szs = {}
 
     def get(self):
-        ret = 0
         if self.update is None:
             t = np.random.randint(0, len(self.pool))
-            ret = self.pool.pop(t)
-        elif self.update == "Linear":
+            return self.pool.pop(t)
+        ret = 0
+        if self.update == "Linear":
             t = np.random.choice(np.arange(len(self.pool)),
                                 p=np.array(self.weight) / np.sum(self.weight))
             ret = self.pool.pop(t)
@@ -213,6 +213,10 @@ class SamplingPool:
             ret = self.pool.pop(t)
             self.weight.pop(t)
             self.weight = [x * 5 for x in self.weight]
+        # normalize to prevent overflow for large theta / many queries
+        if self.weight:
+            max_w = max(self.weight)
+            self.weight = [x / max_w for x in self.weight]
         return ret
 
     def qsize(self):

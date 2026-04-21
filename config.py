@@ -10,8 +10,6 @@ NITER_LIST = [0, 100, 500, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000,
 PFREE = 0.25
 
 TOP_K_PAIRS = 5         # top-k candidates returned by pairs_attack for the single target key
-THETA = 1               # can't sample from pool until pool size > THETA (following initial SWAT implementation in decorr.py)
-SAMPLING_FUNC = "Exp"   # sampling pool strategy (None, "Linear", "Exp")
 
 NRUNS = 5
 
