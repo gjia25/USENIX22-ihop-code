@@ -122,7 +122,8 @@ def generate_observations(full_data_client, def_params, real_queries):
         correct_mapping = {int(replica): kw_id for kw_id, replicas in enumerate(kw_id_to_replica) for replica in replicas}
 
     elif def_params['name'] == 'waffle':
-        raise NotImplementedError("Waffle defense not yet implemented")
+        trace_type = 'tok_vol'
+        traces, bw_overhead, real_and_dummy_queries, correct_mapping = generate_waffle_obs(nkw, def_params, real_queries)
 
     else:
         raise ValueError("Defense {:s} not implemented".format(def_params['name']))
@@ -223,3 +224,142 @@ class SamplingPool:
     def put(self, x):
         self.pool.append(x)
         self.weight.append(1)
+
+def generate_waffle_obs(nkw, def_params, real_queries):
+    from collections import OrderedDict
+    traces = []
+    N = nkw
+
+    # --- Parameters (Table 1 in Waffle paper) ---
+    B   = def_params.get('B', 2500)   # batch size sent to server
+    R   = def_params.get('R', 1000)   # max real queries per batch (40% of B)
+    fD  = def_params.get('fD', 500)   # fake queries on dummy objects per batch (20% of B)
+
+    # Cache size: default 2% of N, but at least B - fD + R (paper assumption)
+    C_min = B - fD + R
+    C_default = max(C_min, int(0.02 * N))
+    C = def_params.get('C') or C_default
+    C = max(C, C_min)
+
+    # D: balance both alpha ratios equal: (N-1)/(B-R-fD) = D/fD
+    fR_min = B - R - fD
+    if fR_min > 0:
+        D_default = max(fD, fD * (N - 1) // fR_min)
+    else:
+        D_default = max(fD, N)
+    D = def_params.get('D') or D_default
+    D = max(D, fD)  # D must be >= fD so we can always pick fD dummies
+
+    # --- Initialization ---
+    real_ts  = np.zeros(N, dtype=int)   # BST timestamps for real keywords
+    dummy_ts = np.zeros(D, dtype=int)   # BST timestamps for dummy objects
+
+    # LRU cache (OrderedDict: last = most recently used)
+    cache = OrderedDict()
+    init_n = min(B - fD, N, C)
+    for kw in np.random.choice(N, init_n, replace=False).tolist():
+        cache[kw] = True
+
+    global_ts = 0
+    next_tok  = 0
+    correct_mapping_waffle = {}
+    rdq = []  # real_and_dummy_queries accumulator
+
+    dummy_batch_counter = 0   # for randomizing dummy timestamp order
+    dummy_cycle = max(1, D // fD)
+
+    nq = len(real_queries)
+    qi = 0
+
+    while qi < nq:
+        batch = real_queries[qi: qi + R]
+        qi += R
+        global_ts += 1
+
+        # === READ PHASE ===
+
+        # 1. Deduplicate R client requests; serve cache hits, collect misses
+        seen_misses = {}
+        for kw_id in batch:
+            kw_id = int(kw_id)
+            if kw_id in cache:
+                cache.move_to_end(kw_id)   # refresh LRU position
+            elif kw_id not in seen_misses:
+                seen_misses[kw_id] = True
+
+        cache_misses = list(seen_misses.keys())
+        r  = len(cache_misses)
+        fR = max(0, B - r - fD)
+
+        # 2. Select fD least-recently-accessed dummy objects
+        fake_dummies = np.argsort(dummy_ts)[:fD].tolist()
+
+        # 3. Select fR least-recently-accessed real objects not in cache or misses
+        avoid = set(cache_misses) | set(cache.keys())
+        fake_reals = []
+        for kw_id in np.argsort(real_ts):
+            kw_id = int(kw_id)
+            if kw_id not in avoid:
+                fake_reals.append(kw_id)
+                avoid.add(kw_id)
+                if len(fake_reals) >= fR:
+                    break
+
+        # 4. Update BST timestamps for everything accessed this batch
+        for kw_id in cache_misses:
+            real_ts[kw_id] = global_ts
+        for kw_id in fake_reals:
+            real_ts[kw_id] = global_ts
+        for d_id in fake_dummies:
+            dummy_ts[d_id] = global_ts
+
+        # 5. Randomize dummy timestamp order every D//fD batches
+        dummy_batch_counter += 1
+        if dummy_batch_counter >= dummy_cycle:
+            dummy_ts[:] = global_ts
+            dummy_batch_counter = 0
+
+        # 6. Emit READ traces (B total: r real + fR fake-real + fD fake-dummy)
+        for kw_id in cache_misses:
+            tok = next_tok; next_tok += 1
+            correct_mapping_waffle[tok] = kw_id
+            traces.append((tok, 1))
+            rdq.append(kw_id)
+
+        for kw_id in fake_reals:
+            tok = next_tok; next_tok += 1
+            correct_mapping_waffle[tok] = kw_id
+            traces.append((tok, 1))
+            rdq.append(kw_id)
+
+        for d_id in fake_dummies:
+            tok = next_tok; next_tok += 1
+            correct_mapping_waffle[tok] = N   # dummy sentinel (same as Pancake's nkw)
+            traces.append((tok, 1))
+            rdq.append(N)
+
+        # === WRITE PHASE ===
+        # For each of the r + fR real objects fetched: evict 1 LRU, cache the new object.
+        # Evicted objects are written back to server with a new storage id (fresh token).
+        for kw_id in cache_misses + fake_reals:
+            # Always evict one LRU entry (cache invariant ensures size >= r + fR)
+            evicted, _ = cache.popitem(last=False)
+            tok = next_tok; next_tok += 1
+            correct_mapping_waffle[tok] = evicted
+            traces.append((tok, 1))
+            rdq.append(evicted)
+            # Insert newly fetched object at MRU position
+            cache[kw_id] = True
+
+        # Dummy objects are written back with fresh tokens (re-encrypted)
+        for d_id in fake_dummies:
+            tok = next_tok; next_tok += 1
+            correct_mapping_waffle[tok] = N
+            traces.append((tok, 1))
+            rdq.append(N)
+
+    real_and_dummy_queries = np.array(rdq)
+    correct_mapping = correct_mapping_waffle
+    bw_overhead = len(traces) / nq if nq > 0 else 1
+
+    return traces, bw_overhead, real_and_dummy_queries, correct_mapping

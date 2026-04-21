@@ -72,7 +72,7 @@ class ExpParams:
                     'osse': {'tpr': 1.0, 'fpr': 0.0},
                     'pancake': {},
                     'swat': {},
-                    'waffle': {},  # stub — not yet implemented
+                    'waffle': {'B': 2500, 'R': 1000, 'fD': 500, 'C': None, 'D': None},
                     }
         assert name in TEMPLATE.keys()
         self.def_params = {'name': name}
