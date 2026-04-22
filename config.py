@@ -21,3 +21,4 @@ HIGH_CORR_PERMUTE = True # If CORR_LEVEL = 'high' and HIGH_CORR_PERMUTE = True, 
                           # If False, each kw only transitions to first doc containing it
 
 BASE_SEED = 58 # debug.py runs deterministically; introduce randomness in case a run gets interrupted and we want to restart without redoing all of the previously-done randomness
+DEBUG_MODE = True
