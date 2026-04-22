@@ -35,7 +35,7 @@ def run_experiment_wrapper(exp_params, attack_list):
 
             for i_att, (att, att_p) in enumerate(attack_list):
                 exp_params.set_attack_params(att, **att_p)
-                acc, accu, time_exp = run_experiment(exp_params, seed=seed, debug_mode=True)
+                acc, accu, time_exp = run_experiment(exp_params, seed=seed)
                 if att == 'pairs':
                     # acc is a list of per-k hit indicators [hit@1, hit@2, ..., hit@top_k]
                     top_k = att_p.get('top_k', TOP_K_PAIRS)

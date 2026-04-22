@@ -1,5 +1,26 @@
 import numpy as np
 import scipy.stats
+from matplotlib import pyplot as plt
+
+
+def plot_bar(values, axis_label, filename):
+    fig, ax = plt.subplots()
+    ax.bar(range(len(values)), values)
+    ax.set_xlabel(f"{axis_label} index")
+    ax.set_ylabel("Frequency")
+    ax.set_title(f"{axis_label} frequencies")
+    fig.savefig(filename)
+    plt.close(fig)
+
+
+def plot_heatmap(matrix, axis_label, filename):
+    fig, ax = plt.subplots()
+    im = ax.imshow(matrix, aspect="auto", interpolation="nearest")
+    fig.colorbar(im, ax=ax)
+    ax.set_xlabel(f"{axis_label} (from)")
+    ax.set_ylabel(f"{axis_label} (to)")
+    fig.savefig(filename)
+    plt.close(fig)
 
 
 def get_steady_state(markov_matrix):

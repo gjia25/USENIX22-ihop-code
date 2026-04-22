@@ -3,7 +3,6 @@ import numpy as np
 import pickle
 import time
 import attacks
-from matplotlib import pyplot as plt
 import utils
 from defense import generate_observations
 from collections import Counter, defaultdict
@@ -42,7 +41,7 @@ def generate_keyword_queries(mode_query, frequencies, nqr, nkw):
         raise ValueError("Frequencies has {:d} dimensions, only 1 or 2 allowed".format(frequencies.ndim))
     return queries
 
-def build_frequencies_from_file(chosen_kw_indices, chosen_doc_indices, dataset, trends):
+def build_frequencies_from_file(chosen_kw_indices, chosen_doc_indices, dataset, trends, gen_params):
     num_keys = len(chosen_kw_indices) + len(chosen_doc_indices)
     freq_real = np.zeros((num_keys, num_keys))
 
@@ -108,6 +107,12 @@ def build_frequencies_from_file(chosen_kw_indices, chosen_doc_indices, dataset, 
     for r in range(num_keys):
         assert(math.isclose(sum(freq_real[:, r]), 1))
 
+    if DEBUG_MODE:
+        dataset_name = gen_params['dataset']
+        seed = gen_params.get('seed', -1)
+        # utils.plot_bar(kw_freq, "Keyword", f"{dataset_name}_{seed}_kw_freq.png")
+        utils.plot_heatmap(freq_real, "Keyword", f"{dataset_name}_{seed}_freq_real.png")
+
     return freq_real, freq_real, freq_real
 
 def generate_train_test_data(gen_params):
@@ -131,7 +136,7 @@ def generate_train_test_data(gen_params):
     chosen_doc_indices = list(permutation[:ndoc])
 
     # get Markov transition matrix
-    freq_adv, freq_cli, freq_real = build_frequencies_from_file(chosen_kw_indices, chosen_doc_indices, dataset, aux_dataset_info['trends'])
+    freq_adv, freq_cli, freq_real = build_frequencies_from_file(chosen_kw_indices, chosen_doc_indices, dataset, aux_dataset_info['trends'], gen_params)
 
     full_data_adv = {'dataset': dataset,
                      'keywords': range(nkw+ndoc),
@@ -164,11 +169,12 @@ def run_attack(attack_name, **kwargs):
         raise ValueError("Attack name '{:s}' not recognized".format(attack_name))
 
 
-def run_experiment(exp_param, seed, debug_mode=False):
-    v_print = print if debug_mode else lambda *a, **k: None
+def run_experiment(exp_param, seed):
+    v_print = print if DEBUG_MODE else lambda *a, **k: None
 
     t0 = time.time()
     np.random.seed(BASE_SEED + seed)
+    exp_param.gen_params['seed'] = seed
     full_data_adv, full_data_client, freq_real = generate_train_test_data(exp_param.gen_params)
     v_print("Generated train-test data: adv dataset {:d}, client dataset {:d} ({:.1f} secs)".format(len(full_data_adv['dataset']),
                                                                                                     len(full_data_client['dataset']),

@@ -5,6 +5,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import utils
+from config import DEBUG_MODE
 
 
 def pairs_attack(obs, aux, exp_params):
@@ -113,6 +114,12 @@ def pairs_attack(obs, aux, exp_params):
     outer_freq = np.outer(token_freq, token_freq)
     outer_freq[outer_freq == 0] = 1.0
     CO_norm = CO / outer_freq
+
+    if DEBUG_MODE:
+        dataset_name = exp_params.gen_params['dataset']
+        seed = exp_params.gen_params.get('seed', -1)
+        # utils.plot_bar(np.bincount(token_ids).astype(float), "Token", f"{dataset_name}_{seed}_token_freq.png")
+        utils.plot_heatmap(CO_norm, "Token", f"{dataset_name}_{seed}_co_matrix.png")
 
     # ====================================================================
     # Step 3: Top-k candidate tokens for target_key
