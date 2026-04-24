@@ -110,17 +110,19 @@ def build_frequencies_from_file(chosen_kw_indices, chosen_doc_indices, dataset, 
                     for doc_n in chosen_doc_indices_for_kw:
                         freq_real[doc_chosen_to_idx[doc_n] + len(chosen_kw_indices), kw_idx] = 1 / len(chosen_doc_indices_for_kw)            
     elif CORR_LEVEL == 'toy':
+        mapped_doc_i = None
         for kw_idx, kw in enumerate(chosen_kw_indices):
-            if kw_idx == 0:
-                doc_i = np.random.choice(range(len(chosen_doc_indices)))
-                doc_idx = doc_i + len(chosen_kw_indices)
+            if kw_idx == 0 and mapped_doc_i is None:
+                mapped_doc_i = np.random.choice(range(len(chosen_doc_indices)))
+                doc_idx = mapped_doc_i + len(chosen_kw_indices)
                 freq_real[doc_idx, kw_idx] = 1
-                print(f"kw_idx {kw_idx} -> doc_idx {doc_idx} (doc_i {doc_i})")
+                print(f"kw_idx {kw_idx} -> doc_idx {doc_idx} (doc_i {mapped_doc_i})")
             else:
                 for doc_i in range(len(chosen_doc_indices)):
+                    if doc_i == mapped_doc_i:
+                        continue
                     doc_idx = doc_i + len(chosen_kw_indices)
-                    freq_real[doc_idx, kw_idx] = 1 / len(chosen_doc_indices)
-
+                    freq_real[doc_idx, kw_idx] = 1 / (len(chosen_doc_indices) - 1)
     else:
         # transition probability from kw for n docs containing it is default 1/n each
         exp_factor = 1.0

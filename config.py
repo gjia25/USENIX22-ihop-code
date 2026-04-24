@@ -17,7 +17,7 @@ DIST = 'uniform'    # 'file': read true distribution from file
                     # 'uniform': uniform distribution over keywords
 
 # experiment.py
-CORR_LEVEL = 'high'  # 'high': each kw only transitions to one (first/random) doc containing it - see HIGH_CORR_PERMUTE
+CORR_LEVEL = 'toy'  # 'high': each kw only transitions to one (first/random) doc containing it - see HIGH_CORR_PERMUTE
                     # 'mid' : each kw can transition to any doc containing it, but weighted exponentially
                     # 'low' : each kw can transition to any doc containing it (weighted equally)
                     # 'mixed': kw 0 only transitions to one doc containing it ('high' correlation), but the rest are 'low' correlation
