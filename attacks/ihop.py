@@ -43,7 +43,8 @@ def get_update_coefficients_functions(token_trace, token_info, aux, obs, exp_par
     # Observations
     Vobs = compute_Vobs(obs['trace_type'], token_info, ndocs)
     fobs = compute_fobs(exp_params.def_params['name'], token_trace, len(token_info))
-    nq_per_tok, Fobs = compute_Fobs(exp_params.def_params['name'], token_trace, len(token_info))
+    latency = att_params.get('latency', 1)
+    nq_per_tok, Fobs = compute_Fobs(exp_params.def_params['name'], token_trace, len(token_info), latency)
     Fobs_counts = Fobs * nq_per_tok
 
     # Auxiliary info

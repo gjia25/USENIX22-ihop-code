@@ -37,11 +37,12 @@ def run_experiment_wrapper(exp_params, attack_list):
                 exp_params.set_attack_params(att, **att_p)
                 acc, accu, time_exp = run_experiment(exp_params, seed=seed)
                 if att == 'pairs':
-                    # acc is a list of per-k hit indicators [hit@1, hit@2, ..., hit@top_k]
+                    # acc/accu are per-k hit indicators [hit@1, ..., hit@top_k] for kw/doc
                     top_k = att_p.get('top_k', TOP_K_PAIRS)
                     hits_str = "  ".join(f"top-{k}={acc[k-1]}" for k in range(1, top_k + 1))
-                    print_log(f"{seed}) pairs (top_k={top_k}): {hits_str}  ({time_exp:.2f} secs)", f)
-                    acc_list[i_att].append(acc)
+                    doc_hits_str = "  ".join(f"top-{k}={accu[k-1]}" for k in range(1, top_k + 1))
+                    print_log(f"{seed}) pairs (top_k={top_k}): kw: {hits_str}  doc: {doc_hits_str}  ({time_exp:.2f} secs)", f)
+                    acc_list[i_att].append((acc, accu))
                 elif type(acc) == list:
                     acc_list[i_att].append((acc[-1], accu[-1]))
                     for acc_, accu_ in zip(acc, accu):
@@ -54,9 +55,12 @@ def run_experiment_wrapper(exp_params, attack_list):
         for i_att, (att, att_p) in enumerate(attack_list):
             if att == 'pairs':
                 top_k = att_p.get('top_k', TOP_K_PAIRS)
-                avg_hits = np.mean(acc_list[i_att], axis=0)  # shape (top_k,)
-                hits_str = "  ".join(f"top-{k}={avg_hits[k-1]:.3f}" for k in range(1, top_k + 1))
-                print_log(f"pairs (top_k={top_k}): {hits_str}", f)
+                kw_hits, doc_hits = zip(*acc_list[i_att])
+                avg_kw = np.mean(kw_hits, axis=0)    # shape (top_k,)
+                avg_doc = np.mean(doc_hits, axis=0)  # shape (top_k,)
+                hits_str = "  ".join(f"top-{k}={avg_kw[k-1]:.3f}" for k in range(1, top_k + 1))
+                doc_hits_str = "  ".join(f"top-{k}={avg_doc[k-1]:.3f}" for k in range(1, top_k + 1))
+                print_log(f"pairs (top_k={top_k}): kw: {hits_str}  doc: {doc_hits_str}", f)
             else:
                 print_log("{:s}: avg acc={:.3f}, avg accu={:.3f}".format(att, *[np.mean(aux) for aux in zip(*acc_list[i_att])]), f)
 
@@ -66,22 +70,30 @@ if __name__ == "__main__":
 
     time_init = time.time()
 
+    # Run Pancake
+    exp_params = ExpParams()
+    exp_params.set_defense_params('pancake')
+    exp_params.set_general_params(dataset='enron-full', nkw=NKW, ndoc=NKW, nqr=NQR, freq='file', mode_query='markov')
+    attack_list = [('pairs', {'top_k': TOP_K_PAIRS, 'latency': 1})]
+    run_experiment_wrapper(exp_params, attack_list)
+
     thetas = []        # Iterate through powers of 2 for theta
     t = 1
     while t < NKW // 2:
         thetas.append(t)
         t *= 2
     thetas.append(NKW // 2)
-
+    # latency = max(thetas)
     # Run SWAT with different theta
     for theta in thetas:
-        latency = theta  # window = 3*(theta+1), matches SWAT pool size
+        latency = theta + 1 # window = 3*(theta+1), matches SWAT pool size
         print_log(f"\n\nRunning experiment with SWAT theta={theta}...", open(os.devnull, 'w'))
         exp_params = ExpParams()
         exp_params.set_defense_params('swat', theta=theta, sampling_func='Exp')
-        exp_params.set_general_params(dataset='enron-full', nkw=NKW, ndoc=NKW, nqr=NQR, freq='file', mode_ds='same', mode_fs='same', mode_kw='rand', mode_query='markov')
+        exp_params.set_general_params(dataset='enron-full', nkw=NKW, ndoc=NKW, nqr=NQR, freq='file', mode_query='markov')
         attack_list = [
-            ('pairs', {'top_k': TOP_K_PAIRS, 'latency': latency})
+            # ('ihop', {'mode': 'Freq', 'pfree': PFREE, 'niters': NITERS, 'latency': latency}),
+            ('pairs', {'top_k': TOP_K_PAIRS, 'latency': latency}),
         ]
         run_experiment_wrapper(exp_params, attack_list)
 

@@ -3,7 +3,7 @@ from collections import Counter
 import scipy.stats
 from sys import float_info
 from sklearn.cluster import KMeans
-
+from config import DEBUG_MODE
 
 def traces_to_binary(traces_flattened, n_docs_test):
     # TODO: do this more efficiently
@@ -59,19 +59,34 @@ def compute_fobs(def_name, token_trace, n_tokens):
     return fobs
 
 
-def compute_Fobs(def_name, token_trace, n_tokens):
+def compute_Fobs(def_name, token_trace, n_tokens, latency=0):
     Fobs = np.zeros((n_tokens, n_tokens))
     nq_per_tok = np.zeros(n_tokens)
     counter = Counter(token_trace[:-1])  # We do not take the last one, because we do not know the transition from that one
 
-    if def_name != 'pancake':
+    if def_name not in ('pancake', 'swat'):
         mj_test = np.histogram2d(token_trace[1:], token_trace[:-1], bins=(range(n_tokens + 1), range(n_tokens + 1)))[0] / (len(token_trace) - 1)
-    else:
+    elif latency == 0:
         mj_test = np.zeros((n_tokens, n_tokens))
         for i in range(3):
             for j in range(3):
                 mj_test += np.histogram2d(token_trace[3 + i::3], token_trace[j:-3:3], bins=(range(n_tokens + 1), range(n_tokens + 1)))[0]
+    else:
+        mj_test = np.zeros((n_tokens, n_tokens))
+        window_len = 3*(latency+1)
+        print(f"window_len = {window_len}")
+        for token_from_index in range(len(token_trace)):
+            window_start = token_from_index
+            window_start -= (window_start % 3) # round down to nearest multiple of 3 (start of batch)
+            window_end = min(len(token_trace)-1, window_start + window_len)
+            
+            # if DEBUG_MODE:
+            #     print(f"** token_from_index: {token_from_index}, window_start: {window_start}, window_end: {window_end}, window: {token_trace[window_start:window_end]}", flush=True)
 
+            for token_to_index in range(window_start, window_end):
+                if (token_to_index == token_from_index): continue # don't count self-transition
+
+                mj_test[token_trace[token_to_index]][token_trace[token_from_index]] += 1
     for j in range(n_tokens):
         nq_per_tok[j] = np.sum(mj_test[:, j])
         if np.sum(mj_test[:, j]) > 0:

@@ -43,40 +43,84 @@ def generate_keyword_queries(mode_query, frequencies, nqr, nkw):
 
 def build_frequencies_from_file(chosen_kw_indices, chosen_doc_indices, dataset, trends, gen_params):
     num_keys = len(chosen_kw_indices) + len(chosen_doc_indices)
-    freq_real = np.zeros((num_keys, num_keys))
+    if DIST == 'file':
+        freq_real = np.zeros((num_keys, num_keys))
 
-    # filter trends to chosen kws, collapse 52 weeks of trend data to a 1d array
-    trend_matrix = trends[chosen_kw_indices, :]
-    for i_col in range(trend_matrix.shape[1]):
-        if sum(trend_matrix[:, i_col]) == 0:
-            print("The {:d}th column of the trend matrix adds up to zero, making it uniform!".format(i_col))
-            trend_matrix[:, i_col] = 1 / len(chosen_kw_indices)
-        else:
-            trend_matrix[:, i_col] = trend_matrix[:, i_col] / sum(trend_matrix[:, i_col])
-    kw_freq = np.mean(trend_matrix, axis=1)
-
+        # filter trends to chosen kws, collapse 52 weeks of trend data to a 1d array
+        trend_matrix = trends[chosen_kw_indices, :]
+        for i_col in range(trend_matrix.shape[1]):
+            if sum(trend_matrix[:, i_col]) == 0:
+                print("The {:d}th column of the trend matrix adds up to zero, making it uniform!".format(i_col))
+                trend_matrix[:, i_col] = 1 / len(chosen_kw_indices)
+            else:
+                trend_matrix[:, i_col] = trend_matrix[:, i_col] / sum(trend_matrix[:, i_col])
+        kw_freq = np.mean(trend_matrix, axis=1)
+    elif DIST == 'uniform':
+        freq_real = np.zeros((num_keys, num_keys))
+        kw_freq = np.ones(len(chosen_kw_indices)) / len(chosen_kw_indices)
+    
     # build transitions from docs to kws. No matter which doc, probability vector of transiting to any kw is kw_freq
     for doc_idx in range(len(chosen_kw_indices), num_keys):
         freq_real[0:len(chosen_kw_indices), doc_idx] = kw_freq
+    
+    inverted_index = utils.build_inverted_index(dataset, chosen_kw_indices)
+    doc_chosen_to_idx = {doc_n: doc_i for doc_i, doc_n in enumerate(chosen_doc_indices)}
 
     # build transitions from kws to docs
     if CORR_LEVEL == 'high':
         # transition probability from kw to first doc containing it is 1, else 0
         for kw_idx, kw in enumerate(chosen_kw_indices):
-            doc_selected_for_kw = False
-
-            # select random doc containing this kw if HIGH_CORR_PERMUTE, else select first doc containing it
-            docs = np.random.permutation(list(enumerate(chosen_doc_indices))) if HIGH_CORR_PERMUTE else enumerate(chosen_doc_indices)
-
-            for doc_i, doc_n in docs:
-                if doc_selected_for_kw: continue
-
-                doc = dataset[doc_n]
+            chosen_doc_for_kw = None
+            for doc_n in inverted_index[kw]: # find first doc in chosen_doc_indices
+                if doc_n in doc_chosen_to_idx:
+                    chosen_doc_for_kw = doc_n
+                    break
+            if chosen_doc_for_kw is not None:
+                doc_idx = doc_chosen_to_idx[chosen_doc_for_kw] + len(chosen_kw_indices)
+                freq_real[doc_idx, kw_idx] = 1
+            else:
+                print(f"kw_idx {kw_idx}: no chosen doc contains this kw, falling back to random doc")
+                doc_i = np.random.choice(range(len(chosen_doc_indices)))
                 doc_idx = doc_i + len(chosen_kw_indices)
-                if kw in doc:
+                freq_real[doc_idx, kw_idx] = 1
+
+    elif CORR_LEVEL == 'mixed':
+        for kw_idx, kw in enumerate(chosen_kw_indices):
+            if kw_idx == 0:
+                chosen_doc_for_kw = None
+                for doc_n in inverted_index[kw]: # find first doc in chosen_doc_indices
+                    if doc_n in doc_chosen_to_idx:
+                        chosen_doc_for_kw = doc_n
+                        break
+                if chosen_doc_for_kw is not None:
+                    doc_idx = doc_chosen_to_idx[chosen_doc_for_kw] + len(chosen_kw_indices)
                     freq_real[doc_idx, kw_idx] = 1
-                    doc_selected_for_kw = True
-                    if kw_idx == 0: print("doc for kw0 is", doc_idx)
+                    print(f"kw_idx {kw_idx} -> doc_idx {doc_idx} (doc_n {chosen_doc_for_kw})")
+                else:
+                    print(f"kw_idx {kw_idx}: no chosen doc contains this kw, using uniform fallback")
+                    for doc_i in range(len(chosen_doc_indices)):
+                        freq_real[doc_i + len(chosen_kw_indices), kw_idx] = 1 / len(chosen_doc_indices)
+            else:
+                chosen_doc_indices_for_kw = [doc_n for doc_n in inverted_index[kw] if doc_n in chosen_doc_indices]
+                if len(chosen_doc_indices_for_kw) == 0:
+                    print(f"kw_idx {kw_idx}: no chosen doc contains this kw, using uniform fallback")
+                    for doc_i in range(len(chosen_doc_indices)):
+                        freq_real[doc_i + len(chosen_kw_indices), kw_idx] = 1 / len(chosen_doc_indices)
+                else:
+                    for doc_n in chosen_doc_indices_for_kw:
+                        freq_real[doc_chosen_to_idx[doc_n] + len(chosen_kw_indices), kw_idx] = 1 / len(chosen_doc_indices_for_kw)            
+    elif CORR_LEVEL == 'toy':
+        for kw_idx, kw in enumerate(chosen_kw_indices):
+            if kw_idx == 0:
+                doc_i = np.random.choice(range(len(chosen_doc_indices)))
+                doc_idx = doc_i + len(chosen_kw_indices)
+                freq_real[doc_idx, kw_idx] = 1
+                print(f"kw_idx {kw_idx} -> doc_idx {doc_idx} (doc_i {doc_i})")
+            else:
+                for doc_i in range(len(chosen_doc_indices)):
+                    doc_idx = doc_i + len(chosen_kw_indices)
+                    freq_real[doc_idx, kw_idx] = 1 / len(chosen_doc_indices)
+
     else:
         # transition probability from kw for n docs containing it is default 1/n each
         exp_factor = 1.0
@@ -105,12 +149,13 @@ def build_frequencies_from_file(chosen_kw_indices, chosen_doc_indices, dataset, 
     # sum of column i should be 1
     import math
     for r in range(num_keys):
-        assert(math.isclose(sum(freq_real[:, r]), 1))
+        assert math.isclose(sum(freq_real[:, r]), 1), f"Column {r} of freq_real sums to {sum(freq_real[:, r])}, not 1"
 
     if DEBUG_MODE:
         dataset_name = gen_params['dataset']
         seed = gen_params.get('seed', -1)
         # utils.plot_bar(kw_freq, "Keyword", f"{dataset_name}_{seed}_kw_freq.png")
+        # utils.plot_bar([len(inverted_index[i]) for i in range(len(chosen_kw_indices))], "Keyword", f"{dataset_name}_{seed}_mixed_DocsPerKW.png")
         utils.plot_heatmap(freq_real, "Keyword", f"{dataset_name}_{seed}_freq_real.png")
 
     return freq_real, freq_real, freq_real
@@ -196,25 +241,31 @@ def run_experiment(exp_param, seed):
     v_print("Done running attack ({:.1f} secs)".format(time.time() - t0))
     time_exp = time.time() - t0
 
-    # pairs_attack returns (target_key, top_k_tokens); all others return the old 3-tuple
+    # pairs_attack returns (target_token, candidates, target_doc_token, doc_candidates)
     if exp_param.att_params['name'] == 'pairs':
-        target_key, top_k_tokens = attack_result
+        target_token, top_k_keys, target_doc_token, doc_candidates = attack_result
         top_k = exp_param.att_params['top_k']
-        # invert correct_mapping (token → key) to find the correct token for target_key
-        inv_mapping = {k: t for t, k in correct_mapping.items()}
-        correct_token = inv_mapping.get(target_key, None)
-        v_print(f"pairs target_key={target_key}, correct_token={correct_token}, top_k_tokens={top_k_tokens}")
-        hits = [1 if (correct_token is not None and correct_token in top_k_tokens[:k])
-                else 0
+        correct_key = correct_mapping.get(target_token)
+        correct_doc = correct_mapping.get(target_doc_token)
+        v_print(f"\n[eval] target_token={target_token}  correct_key={correct_key}")
+        v_print(f"[eval] top_k_keys: {top_k_keys}")
+        v_print(f"[eval] -> key {'HIT' if correct_key in top_k_keys else 'MISS'}")
+        v_print(f"\n[eval] target_doc_token={target_doc_token}  correct_doc={correct_doc}")
+        v_print(f"[eval] doc_candidates: {doc_candidates}")
+        v_print(f"[eval] -> doc {'HIT' if correct_doc in doc_candidates else 'MISS'}")
+
+        hits = [1 if correct_key in top_k_keys[:k] else 0
                 for k in range(1, top_k + 1)]
-        return hits, [], time_exp
+        doc_hits = [1 if correct_doc in doc_candidates[:k] else 0
+                    for k in range(1, top_k + 1)]
+        return hits, doc_hits, time_exp
 
     keyword_predictions_for_each_query, predicted_mapping, corr_token_to_key = attack_result
 
     v_print("predictions", len(keyword_predictions_for_each_query), keyword_predictions_for_each_query[:50])
     v_print("real and dummy queries", len(real_and_dummy_queries), real_and_dummy_queries[:50])
     if predicted_mapping is not None:
-        v_print("predicted mapping", len(predicted_mapping), predicted_mapping, flush=True)
+        # v_print("predicted mapping", len(predicted_mapping), predicted_mapping, flush=True)
         correct_predictions = {t: k for t, k in predicted_mapping.items() if t in correct_mapping and correct_mapping[t] == k}
         v_print("correct predictions", len(correct_predictions), correct_predictions)
         v_print("correct predictions from correlation matching", {t: k for t, k in correct_predictions.items() if t in corr_token_to_key})

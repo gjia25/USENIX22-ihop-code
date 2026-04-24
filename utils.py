@@ -1,6 +1,16 @@
 import numpy as np
 import scipy.stats
 from matplotlib import pyplot as plt
+from collections import defaultdict
+
+
+def build_inverted_index(dataset, keywords):
+    inverted_index = defaultdict(list)
+    kw_to_kw_id = {kw: kw_id for kw_id, kw in enumerate(keywords)}
+    for doc_id, doc_kws in enumerate(dataset):
+        for kw in set(doc_kws) & set(keywords):
+            inverted_index[kw_to_kw_id[kw]].append(doc_id)
+    return inverted_index
 
 
 def plot_bar(values, axis_label, filename):
@@ -77,7 +87,7 @@ def compute_log_binomial_with_power_rounding(ntrials, probabilities, observation
 
 
 def compute_pancake_parameters(nkw, true_dist):
-    replicas_per_kw = np.ceil(true_dist * nkw)
+    replicas_per_kw = np.maximum(np.ceil(true_dist * nkw), 1).astype(np.int64) # at least 1 replica per kw
     replicas_per_kw = np.append(replicas_per_kw, 2 * nkw - np.sum(replicas_per_kw)).astype(np.int64)
 
     prob_reals = np.append(true_dist, 0)

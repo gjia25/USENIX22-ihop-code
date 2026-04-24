@@ -1,7 +1,7 @@
 import numpy as np
 import utils
 from collections import defaultdict
-
+from config import DEBUG_MODE
 
 def generate_observations(full_data_client, def_params, real_queries):
     """kw_id is the id wrt to this run (e.g., 0, 1, 2, ...nkw)
@@ -80,9 +80,11 @@ def generate_observations(full_data_client, def_params, real_queries):
         freal = utils.get_steady_state(full_data_client['frequencies']) if full_data_client['frequencies'].ndim == 2 else full_data_client['frequencies']
         prob_reals, prob_dummies, replicas_per_kw = utils.compute_pancake_parameters(nkw, freal)
 
-        # some imprecision in calculating prob_reals above causes some values to be very small negative numbers,
-        # which then was causing errors later in the attack when we expect probabilities to be nonnegative
-        prob_reals[prob_reals<0] = -prob_reals[prob_reals<0]
+        # some imprecision can produce tiny negative values; clip and renormalize both distributions
+        prob_reals = np.maximum(prob_reals, 0)
+        prob_reals /= prob_reals.sum()
+        prob_dummies = np.maximum(prob_dummies, 0)
+        prob_dummies /= prob_dummies.sum()
 
         permutation = np.random.permutation(2 * nkw)
         aux = [0] + list(np.cumsum(replicas_per_kw, dtype=int))
@@ -120,6 +122,8 @@ def generate_observations(full_data_client, def_params, real_queries):
             real_and_dummy_queries = trace_no_replicas
         
         correct_mapping = {int(replica): kw_id for kw_id, replicas in enumerate(kw_id_to_replica) for replica in replicas}
+        if DEBUG_MODE:
+            print(f"kw_id_to_replica: {kw_id_to_replica}", flush=True)
 
     elif def_params['name'] == 'waffle':
         trace_type = 'tok_vol'
@@ -149,7 +153,6 @@ def generate_theta_decorr_obs(nkw, kw_id_to_replica, real_queries, prob_reals, p
     traces = []
 
     print("nkw:", nkw)
-    print("real_queries[:25]", real_queries[:25])
 
     for q in real_queries:
         if (len(real_and_dummy_queries) >= NQR): continue
@@ -177,14 +180,7 @@ def generate_theta_decorr_obs(nkw, kw_id_to_replica, real_queries, prob_reals, p
             real_and_dummy_queries.append(idx)
             traces.append((key_, 1))
 
-            # for debug
-            detailedTranscript.append( (idx, key_, type == True) )
-            if que.qsize() not in q_szs: q_szs[que.qsize()] = 0
-            q_szs[que.qsize()] += 1
-
         cnt+=1
-
-    print("First 100 queries (key, replica, isRealQueryFromTranscript):", detailedTranscript[:100])
 
     return traces, np.array(real_and_dummy_queries)
 
